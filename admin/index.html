@@ -254,6 +254,7 @@
           <div><label>Título</label><input id="novaAvaliacaoTitulo" /></div>
           <div><label>Nota máxima</label><input id="novaAvaliacaoNotaMax" type="number" value="10" /></div>
           <div><label>Nota mínima para aprovação</label><input id="novaAvaliacaoNotaMin" type="number" value="7" /></div>
+          <div><label>Link da avaliação (opcional)</label><input id="novaAvaliacaoLink" placeholder="ex: link do Google Forms" /></div>
         </div>
         <div class="campo"><label>Descrição</label><textarea id="novaAvaliacaoDescricao"></textarea></div>
         <button class="btn btn-azul" id="criarAvaliacaoBtn">Criar avaliação</button>
@@ -275,7 +276,7 @@
       <div class="card">
         <h3>Avaliações criadas</h3>
         <table>
-          <thead><tr><th>Título</th><th>Módulo</th><th>Nota máx.</th><th>Mínima aprovação</th></tr></thead>
+          <thead><tr><th>Título</th><th>Módulo</th><th>Nota máx.</th><th>Mínima aprovação</th><th>Link</th></tr></thead>
           <tbody id="listaAvaliacoes"></tbody>
         </table>
       </div>
@@ -578,15 +579,17 @@ document.getElementById("criarAvaliacaoBtn").addEventListener("click", async () 
   const modulo_id = document.getElementById("novaAvaliacaoModulo").value;
   const titulo = document.getElementById("novaAvaliacaoTitulo").value.trim();
   const descricao = document.getElementById("novaAvaliacaoDescricao").value.trim();
+  const link_url = document.getElementById("novaAvaliacaoLink").value.trim() || null;
   const nota_maxima = parseFloat(document.getElementById("novaAvaliacaoNotaMax").value || "10");
   const nota_minima_aprovacao = parseFloat(document.getElementById("novaAvaliacaoNotaMin").value || "7");
   const msgEl = document.getElementById("criarAvaliacaoMsg");
   if(!titulo || !modulo_id){ msgEl.textContent = "Escolha o módulo e dê um título."; msgEl.className = "msg erro"; return; }
-  const { error } = await sb.from("curso_avaliacoes").insert({ modulo_id, titulo, descricao, nota_maxima, nota_minima_aprovacao });
+  const { error } = await sb.from("curso_avaliacoes").insert({ modulo_id, titulo, descricao, link_url, nota_maxima, nota_minima_aprovacao });
   if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
   msgEl.textContent = "Avaliação criada!"; msgEl.className = "msg ok";
   document.getElementById("novaAvaliacaoTitulo").value = "";
   document.getElementById("novaAvaliacaoDescricao").value = "";
+  document.getElementById("novaAvaliacaoLink").value = "";
   await carregarAvaliacoes();
 });
 
@@ -597,7 +600,8 @@ async function carregarAvaliacoes(){
   tbody.innerHTML = "";
   (data || []).forEach(a => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.curso_modulos?.titulo || "")}</td><td>${a.nota_maxima}</td><td>${a.nota_minima_aprovacao}</td>`;
+    const linkHtml = a.link_url ? `<a href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">Abrir</a>` : "";
+    tr.innerHTML = `<td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.curso_modulos?.titulo || "")}</td><td>${a.nota_maxima}</td><td>${a.nota_minima_aprovacao}</td><td>${linkHtml}</td>`;
     tbody.appendChild(tr);
   });
   preencherSelect(document.getElementById("notaAvaliacaoSelect"), data || [], "id", "titulo");

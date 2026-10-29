@@ -112,6 +112,10 @@
     <!-- NOTAS -->
     <section class="painel" id="tab-notas">
       <div class="card">
+        <h3>Avaliações disponíveis</h3>
+        <div id="listaAvaliacoesDisponiveis"><p style="color:#999;">Nenhuma avaliação disponível no momento.</p></div>
+      </div>
+      <div class="card">
         <h3>Minhas avaliações</h3>
         <table>
           <thead><tr><th>Avaliação</th><th>Nota</th><th>Situação</th><th>Observações</th></tr></thead>
@@ -195,6 +199,7 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
 async function carregarTudo(){
   await carregarAulas();
   await carregarTarefas();
+  await carregarAvaliacoesDisponiveis();
   await carregarNotas();
   await carregarProgresso();
 }
@@ -337,6 +342,25 @@ async function carregarTarefas(){
 }
 
 // ---------- NOTAS ----------
+async function carregarAvaliacoesDisponiveis(){
+  const divEl = document.getElementById("listaAvaliacoesDisponiveis");
+  const { data: avaliacoes, error: avErro } = await sb.from("curso_avaliacoes").select("id, titulo, descricao, link_url");
+  const { data: notasFeitas } = await sb.from("curso_notas").select("avaliacao_id").eq("aluno_id", alunoId);
+  const idsComNota = new Set((notasFeitas || []).map(n => n.avaliacao_id));
+  const pendentes = (avaliacoes || []).filter(a => !idsComNota.has(a.id));
+  if(avErro || !pendentes.length){
+    divEl.innerHTML = '<p style="color:#999;">Nenhuma avaliação disponível no momento.</p>';
+    return;
+  }
+  divEl.innerHTML = pendentes.map(a => `
+    <div style="border-top:1px solid #eee;padding:10px 0;">
+      <strong>${escapeHtml(a.titulo)}</strong>
+      ${a.descricao ? `<p style="font-size:13px;color:#555;margin:4px 0;">${escapeHtml(a.descricao)}</p>` : ""}
+      ${a.link_url ? `<a href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">Ir para a avaliação</a>` : '<span style="color:#999;font-size:13px;">Aguarde instruções do professor.</span>'}
+    </div>
+  `).join("");
+}
+
 async function carregarNotas(){
   const { data: notas, error } = await sb.from("curso_notas").select("*, curso_avaliacoes(titulo, nota_minima_aprovacao)").eq("aluno_id", alunoId);
   const tbody = document.getElementById("listaNotasAluno");
