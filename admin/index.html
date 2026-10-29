@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Painel do Administrador — Curso de Formação de Faixas Pretas FIKARJ</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --azul:#00AFEF;
+    --verde:#009C37;
+    --vermelho:#BC002D;
+    --preto:#1a1a1a;
+    --cinza-claro:#f4f6f8;
+    --cinza-borda:#dde3e8;
+    --branco:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background:var(--cinza-claro);
+    color:var(--preto);
+  }
+  header{
+    background:linear-gradient(90deg, var(--preto), #2a2a2a);
+    color:white;
+    padding:16px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+    border-bottom:4px solid var(--azul);
+  }
+  header h1{
+    font-size:18px;
+    margin:0;
+    font-weight:600;
+  }
+  header .sub{
+    font-size:12px;
+    opacity:.75;
+  }
+  #logoutBtn{
+    background:var(--vermelho);
+    color:white;
+    border:none;
+    padding:8px 14px;
+    border-radius:6px;
+    cursor:pointer;
+    font-size:13px;
+  }
+  main{max-width:1100px;margin:0 auto;padding:20px;}
+
+  /* LOGIN */
+  #loginScreen{
+    max-width:380px;
+    margin:60px auto;
+    background:white;
+    border-radius:12px;
+    padding:28px;
+    box-shadow:0 4px 18px rgba(0,0,0,.08);
+    border-top:5px solid var(--azul);
+  }
+  #loginScreen h2{margin-top:0;font-size:18px;}
+  #loginScreen label{display:block;font-size:13px;margin:12px 0 4px;color:#444;}
+  #loginScreen input{
+    width:100%;padding:10px;border:1px solid var(--cinza-borda);border-radius:6px;font-size:14px;
+  }
+  #loginScreen button{
+    margin-top:18px;width:100%;padding:11px;background:var(--azul);color:white;border:none;
+    border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;
+  }
+  #loginErro{color:var(--vermelho);font-size:13px;margin-top:10px;min-height:16px;}
+
+  /* TABS */
+  nav.tabs{
+    display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;
+  }
+  nav.tabs button{
+    background:white;border:1px solid var(--cinza-borda);padding:9px 14px;border-radius:999px;
+    cursor:pointer;font-size:13px;color:#333;
+  }
+  nav.tabs button.ativo{
+    background:var(--azul);color:white;border-color:var(--azul);font-weight:600;
+  }
+  section.painel{display:none;}
+  section.painel.ativo{display:block;}
+
+  .card{
+    background:white;border-radius:10px;padding:18px;margin-bottom:16px;
+    box-shadow:0 1px 4px rgba(0,0,0,.06);border:1px solid var(--cinza-borda);
+  }
+  .card h3{margin-top:0;font-size:15px;}
+  .grid-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid-form.full{grid-template-columns:1fr;}
+  .grid-form label{font-size:12px;color:#555;display:block;margin-bottom:3px;}
+  .grid-form input, .grid-form select, .grid-form textarea{
+    width:100%;padding:8px;border:1px solid var(--cinza-borda);border-radius:6px;font-size:13px;
+  }
+  .grid-form textarea{min-height:60px;}
+  .campo{margin-bottom:8px;}
+  .btn{
+    border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;color:white;
+  }
+  .btn-azul{background:var(--azul);}
+  .btn-verde{background:var(--verde);}
+  .btn-vermelho{background:var(--vermelho);}
+  .btn-cinza{background:#777;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--cinza-borda);vertical-align:top;}
+  th{color:#555;font-weight:600;background:#fafbfc;}
+  .tag{
+    display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;color:white;
+  }
+  .tag-pendente{background:#999;}
+  .tag-aprovado{background:var(--verde);}
+  .tag-reprovado{background:var(--vermelho);}
+  .tag-revisar{background:#d78c00;}
+  .msg{font-size:13px;margin-top:8px;}
+  .msg.ok{color:var(--verde);}
+  .msg.erro{color:var(--vermelho);}
+  .senha-caixa{
+    background:#fff8e1;border:1px dashed #d78c00;padding:10px;border-radius:6px;font-size:13px;margin-top:10px;
+  }
+  .linha-acoes{display:flex;gap:6px;flex-wrap:wrap;}
+  small.ajuda{color:#777;display:block;margin-top:4px;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <h2>Painel do Administrador</h2>
+  <p style="font-size:13px;color:#666;">Curso de Formação de Faixas Pretas — FIKARJ</p>
+  <label>E-mail</label>
+  <input id="loginEmail" type="email" autocomplete="username" />
+  <label>Senha</label>
+  <input id="loginSenha" type="password" autocomplete="current-password" />
+  <button id="loginBtn">Entrar</button>
+  <div id="loginErro"></div>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <div>
+      <h1>Curso de Formação de Faixas Pretas — FIKARJ</h1>
+      <div class="sub" id="nomeAdmin"></div>
+    </div>
+    <button id="logoutBtn">Sair</button>
+  </header>
+
+  <main>
+    <nav class="tabs">
+      <button data-tab="alunos" class="ativo">Alunos</button>
+      <button data-tab="conteudo">Módulos &amp; Aulas</button>
+      <button data-tab="tarefas">Tarefas</button>
+      <button data-tab="avaliacoes">Avaliações</button>
+      <button data-tab="trabalhos">Trabalhos recebidos</button>
+      <button data-tab="progresso">Progresso dos alunos</button>
+    </nav>
+
+    <!-- ALUNOS -->
+    <section class="painel ativo" id="tab-alunos">
+      <div class="card">
+        <h3>Importar alunos da base de atletas da federação</h3>
+        <p style="font-size:13px;color:#555;">
+          Traz automaticamente da base de atletas (a mesma do Portal FIKARJ) todo mundo que já é
+          <strong>faixa marrom 1º Kyu</strong> ou <strong>faixa preta (1º ao 7º Dan)</strong> — com nome,
+          registro FIKARJ, CNKB e associação já preenchidos. O aluno fará login pelo próprio CPF + data de
+          nascimento (igual ao Portal FIKARJ), sem precisar de e-mail nem senha.
+        </p>
+        <button class="btn btn-verde" id="importarAlunosBtn">Importar alunos elegíveis agora</button>
+        <div id="importarAlunosMsg" class="msg"></div>
+        <div id="importarAlunosResultado" style="display:none;margin-top:10px;font-size:13px;"></div>
+      </div>
+
+      <div class="card">
+        <h3>Cadastrar aluno avulso (fora da base de atletas)</h3>
+        <div class="grid-form">
+          <div><label>Nome completo</label><input id="novoAlunoNome" /></div>
+          <div><label>CPF</label><input id="novoAlunoCpf" placeholder="só números ou com pontuação" /></div>
+          <div><label>Data de nascimento</label><input id="novoAlunoNascimento" type="date" /></div>
+          <div><label>Faixa/Graduação atual</label><input id="novoAlunoFaixa" /></div>
+          <div><label>Associação</label><input id="novoAlunoAssociacao" /></div>
+        </div>
+        <button class="btn btn-azul" style="margin-top:12px;" id="criarAlunoBtn">Criar conta do aluno</button>
+        <div id="criarAlunoMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h3>Alunos cadastrados</h3>
+        <table>
+          <thead><tr><th>Nome</th><th>CPF</th><th>Faixa</th><th>Associação</th><th>Registro FIKARJ</th><th>CNKB</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody id="listaAlunos"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MODULOS E AULAS -->
+    <section class="painel" id="tab-conteudo">
+      <div class="card">
+        <h3>Novo módulo</h3>
+        <div class="grid-form">
+          <div><label>Título do módulo</label><input id="novoModuloTitulo" /></div>
+          <div><label>Ordem (número)</label><input id="novoModuloOrdem" type="number" value="0" /></div>
+        </div>
+        <div class="campo"><label>Descrição</label><textarea id="novoModuloDescricao"></textarea></div>
+        <button class="btn btn-azul" id="criarModuloBtn">Criar módulo</button>
+        <div id="criarModuloMsg" class="msg"></div>
+      </div>
+
+      <div id="listaModulos"></div>
+    </section>
+
+    <!-- TAREFAS -->
+    <section class="painel" id="tab-tarefas">
+      <div class="card">
+        <h3>Nova tarefa (trabalho)</h3>
+        <div class="grid-form">
+          <div>
+            <label>Módulo</label>
+            <select id="novaTarefaModulo"></select>
+          </div>
+          <div>
+            <label>Tipo de entrega</label>
+            <select id="novaTarefaTipo">
+              <option value="documento">Documento/imagem (upload)</option>
+              <option value="link_video">Link de vídeo (YouTube/Drive do aluno)</option>
+            </select>
+          </div>
+          <div><label>Título</label><input id="novaTarefaTitulo" /></div>
+          <div><label>Prazo (opcional)</label><input id="novaTarefaPrazo" type="date" /></div>
+        </div>
+        <div class="campo"><label>Instruções</label><textarea id="novaTarefaInstrucoes"></textarea></div>
+        <button class="btn btn-azul" id="criarTarefaBtn">Criar tarefa</button>
+        <div id="criarTarefaMsg" class="msg"></div>
+      </div>
+      <div class="card">
+        <h3>Tarefas criadas</h3>
+        <table>
+          <thead><tr><th>Título</th><th>Módulo</th><th>Tipo</th><th>Prazo</th></tr></thead>
+          <tbody id="listaTarefas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- AVALIACOES -->
+    <section class="painel" id="tab-avaliacoes">
+      <div class="card">
+        <h3>Nova avaliação</h3>
+        <div class="grid-form">
+          <div><label>Módulo</label><select id="novaAvaliacaoModulo"></select></div>
+          <div><label>Título</label><input id="novaAvaliacaoTitulo" /></div>
+          <div><label>Nota máxima</label><input id="novaAvaliacaoNotaMax" type="number" value="10" /></div>
+          <div><label>Nota mínima para aprovação</label><input id="novaAvaliacaoNotaMin" type="number" value="7" /></div>
+        </div>
+        <div class="campo"><label>Descrição</label><textarea id="novaAvaliacaoDescricao"></textarea></div>
+        <button class="btn btn-azul" id="criarAvaliacaoBtn">Criar avaliação</button>
+        <div id="criarAvaliacaoMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h3>Lançar nota de aluno</h3>
+        <div class="grid-form">
+          <div><label>Avaliação</label><select id="notaAvaliacaoSelect"></select></div>
+          <div><label>Aluno</label><select id="notaAlunoSelect"></select></div>
+          <div><label>Nota</label><input id="notaValor" type="number" step="0.1" /></div>
+          <div><label>Observações</label><input id="notaObs" /></div>
+        </div>
+        <button class="btn btn-verde" id="lancarNotaBtn">Salvar nota</button>
+        <div id="lancarNotaMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h3>Avaliações criadas</h3>
+        <table>
+          <thead><tr><th>Título</th><th>Módulo</th><th>Nota máx.</th><th>Mínima aprovação</th></tr></thead>
+          <tbody id="listaAvaliacoes"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TRABALHOS -->
+    <section class="painel" id="tab-trabalhos">
+      <div class="card">
+        <h3>Trabalhos enviados pelos alunos</h3>
+        <table>
+          <thead><tr><th>Aluno</th><th>Tarefa</th><th>Envio</th><th>Status</th><th>Nota</th><th>Feedback</th><th>Ações</th></tr></thead>
+          <tbody id="listaSubmissoes"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PROGRESSO -->
+    <section class="painel" id="tab-progresso">
+      <div class="card">
+        <h3>Progresso dos alunos (aulas assistidas)</h3>
+        <table>
+          <thead><tr><th>Aluno</th><th>Aulas assistidas</th><th>Total de aulas</th><th>Status do certificado</th></tr></thead>
+          <tbody id="listaProgresso"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const SUPABASE_URL = "https://jhvbpssigakvhjfjqazc.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpodmJwc3NpZ2FrdmhqZmpxYXpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3OTU5MjcsImV4cCI6MjEwODM3MTkyN30.aDf6xB7B9XfPL49ZLCXi9PdDiKOPt4T_Anjxw98oyRE";
+const EDGE_CRIAR_ALUNO = SUPABASE_URL + "/functions/v1/curso-criar-aluno";
+const EDGE_IMPORTAR_ALUNOS = SUPABASE_URL + "/functions/v1/curso-importar-alunos";
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let sessao = null;
+let modulosCache = [];
+let alunosCache = [];
+
+// ---------- LOGIN ----------
+document.getElementById("loginBtn").addEventListener("click", fazerLogin);
+document.getElementById("loginSenha").addEventListener("keydown", (e) => { if (e.key === "Enter") fazerLogin(); });
+
+async function fazerLogin(){
+  const email = document.getElementById("loginEmail").value.trim();
+  const senha = document.getElementById("loginSenha").value;
+  const erroEl = document.getElementById("loginErro");
+  erroEl.textContent = "";
+  if(!email || !senha){ erroEl.textContent = "Preencha e-mail e senha."; return; }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+  if(error){ erroEl.textContent = "E-mail ou senha incorretos."; return; }
+
+  const { data: perfil, error: perfilErr } = await sb.from("curso_perfis").select("*").eq("id", data.user.id).single();
+  if(perfilErr || !perfil || perfil.role !== "admin" || !perfil.ativo){
+    erroEl.textContent = "Esta conta não tem acesso de administrador ao curso.";
+    await sb.auth.signOut();
+    return;
+  }
+
+  sessao = data.session;
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("nomeAdmin").textContent = "Logado como " + perfil.nome_completo;
+  carregarTudo();
+}
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await sb.auth.signOut();
+  location.reload();
+});
+
+// ---------- TABS ----------
+document.querySelectorAll("nav.tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("ativo"));
+    document.querySelectorAll("section.painel").forEach(s => s.classList.remove("ativo"));
+    btn.classList.add("ativo");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("ativo");
+  });
+});
+
+async function carregarTudo(){
+  await carregarModulos();
+  await carregarAlunos();
+  await carregarTarefas();
+  await carregarAvaliacoes();
+  await carregarSubmissoes();
+  await carregarProgresso();
+}
+
+// ---------- ALUNOS ----------
+document.getElementById("importarAlunosBtn").addEventListener("click", async () => {
+  const msgEl = document.getElementById("importarAlunosMsg");
+  const resEl = document.getElementById("importarAlunosResultado");
+  msgEl.textContent = "Importando... isso pode levar alguns segundos.";
+  msgEl.className = "msg";
+  resEl.style.display = "none";
+  try{
+    const resp = await fetch(EDGE_IMPORTAR_ALUNOS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + sessao.access_token }
+    });
+    const dados = await resp.json();
+    if(!resp.ok){ msgEl.textContent = "Erro: " + (dados.erro || "não foi possível importar."); msgEl.className = "msg erro"; return; }
+
+    msgEl.textContent = "Importação concluída!";
+    msgEl.className = "msg ok";
+    resEl.style.display = "block";
+    resEl.innerHTML = `
+      Elegíveis encontrados na base: <strong>${dados.total_elegiveis}</strong><br>
+      Importados agora: <strong>${dados.importados.length}</strong><br>
+      Já existiam: <strong>${dados.ja_existiam.length}</strong><br>
+      ${dados.erros.length ? "Erros: <strong>" + dados.erros.length + "</strong><br>" + dados.erros.map(e => escapeHtml(e)).join("<br>") : ""}
+    `;
+    await carregarAlunos();
+  }catch(e){
+    msgEl.textContent = "Erro de conexão: " + e.message;
+    msgEl.className = "msg erro";
+  }
+});
+
+document.getElementById("criarAlunoBtn").addEventListener("click", async () => {
+  const nome_completo = document.getElementById("novoAlunoNome").value.trim();
+  const cpf = document.getElementById("novoAlunoCpf").value.trim();
+  const nascimento = document.getElementById("novoAlunoNascimento").value;
+  const faixa = document.getElementById("novoAlunoFaixa").value.trim();
+  const associacao = document.getElementById("novoAlunoAssociacao").value.trim();
+  const msgEl = document.getElementById("criarAlunoMsg");
+  msgEl.textContent = ""; msgEl.className = "msg";
+
+  if(!nome_completo || !cpf || !nascimento){ msgEl.textContent = "Nome, CPF e data de nascimento são obrigatórios."; msgEl.className = "msg erro"; return; }
+
+  msgEl.textContent = "Criando conta...";
+  try{
+    const resp = await fetch(EDGE_CRIAR_ALUNO, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + sessao.access_token
+      },
+      body: JSON.stringify({ nome_completo, cpf, nascimento, faixa, associacao })
+    });
+    const dados = await resp.json();
+    if(!resp.ok){ msgEl.textContent = "Erro: " + (dados.erro || "não foi possível criar o aluno."); msgEl.className = "msg erro"; return; }
+
+    msgEl.textContent = "Aluno criado! Ele já pode entrar com o próprio CPF e data de nascimento.";
+    msgEl.className = "msg ok";
+
+    document.getElementById("novoAlunoNome").value = "";
+    document.getElementById("novoAlunoCpf").value = "";
+    document.getElementById("novoAlunoNascimento").value = "";
+    document.getElementById("novoAlunoFaixa").value = "";
+    document.getElementById("novoAlunoAssociacao").value = "";
+    await carregarAlunos();
+  }catch(e){
+    msgEl.textContent = "Erro de conexão: " + e.message;
+    msgEl.className = "msg erro";
+  }
+});
+
+async function carregarAlunos(){
+  const { data, error } = await sb.from("curso_perfis").select("*").eq("role", "aluno").order("nome_completo");
+  if(error) return;
+  alunosCache = data || [];
+  const tbody = document.getElementById("listaAlunos");
+  tbody.innerHTML = "";
+  alunosCache.forEach(a => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(a.nome_completo)}</td>
+      <td>${escapeHtml(a.cpf || "")}</td>
+      <td>${escapeHtml(a.faixa || "")}</td>
+      <td>${escapeHtml(a.associacao || "")}</td>
+      <td>${escapeHtml(a.registro_fikarj ?? "")}</td>
+      <td>${escapeHtml(a.cnkb || "")}</td>
+      <td>${a.ativo ? '<span class="tag tag-aprovado">Ativo</span>' : '<span class="tag tag-reprovado">Inativo</span>'}</td>
+      <td><button class="btn btn-cinza toggle-ativo" data-id="${a.id}" data-ativo="${a.ativo}">${a.ativo ? "Desativar" : "Reativar"}</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll(".toggle-ativo").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const novoStatus = btn.dataset.ativo !== "true";
+      await sb.from("curso_perfis").update({ ativo: novoStatus }).eq("id", btn.dataset.id);
+      await carregarAlunos();
+    });
+  });
+  preencherSelect(document.getElementById("notaAlunoSelect"), alunosCache, "id", "nome_completo");
+}
+
+// ---------- MODULOS E AULAS ----------
+document.getElementById("criarModuloBtn").addEventListener("click", async () => {
+  const titulo = document.getElementById("novoModuloTitulo").value.trim();
+  const descricao = document.getElementById("novoModuloDescricao").value.trim();
+  const ordem = parseInt(document.getElementById("novoModuloOrdem").value || "0", 10);
+  const msgEl = document.getElementById("criarModuloMsg");
+  if(!titulo){ msgEl.textContent = "Dê um título ao módulo."; msgEl.className = "msg erro"; return; }
+  const { error } = await sb.from("curso_modulos").insert({ titulo, descricao, ordem });
+  if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = "Módulo criado!"; msgEl.className = "msg ok";
+  document.getElementById("novoModuloTitulo").value = "";
+  document.getElementById("novoModuloDescricao").value = "";
+  await carregarModulos();
+});
+
+async function carregarModulos(){
+  const { data: modulos, error } = await sb.from("curso_modulos").select("*").order("ordem");
+  if(error) return;
+  modulosCache = modulos || [];
+  preencherSelect(document.getElementById("novaTarefaModulo"), modulosCache, "id", "titulo");
+  preencherSelect(document.getElementById("novaAvaliacaoModulo"), modulosCache, "id", "titulo");
+
+  const container = document.getElementById("listaModulos");
+  container.innerHTML = "";
+
+  for(const mod of modulosCache){
+    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem");
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <h3>${escapeHtml(mod.titulo)} <small style="font-weight:normal;color:#777;">(ordem ${mod.ordem})</small></h3>
+      <p style="font-size:13px;color:#555;">${escapeHtml(mod.descricao || "")}</p>
+      <table>
+        <thead><tr><th>Aula</th><th>YouTube</th><th>Obrigatória</th></tr></thead>
+        <tbody>
+          ${aulas && aulas.length ? aulas.map(a => `<tr><td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.youtube_id || "")}</td><td>${a.obrigatoria ? "Sim" : "Não"}</td></tr>`).join("") : '<tr><td colspan="3" style="color:#999;">Nenhuma aula ainda</td></tr>'}
+        </tbody>
+      </table>
+      <details style="margin-top:10px;">
+        <summary style="cursor:pointer;font-size:13px;color:var(--azul);">+ Adicionar aula neste módulo</summary>
+        <div class="grid-form" style="margin-top:10px;">
+          <div><label>Título da aula</label><input class="aulaTitulo" /></div>
+          <div><label>Vídeo do YouTube</label><input class="aulaYoutube" placeholder="cole o link completo ou só o código, ex: dQw4w9WgXcQ" /></div>
+          <div><label>Link do material (opcional)</label><input class="aulaMaterial" /></div>
+          <div><label>Obrigatória?</label>
+            <select class="aulaObrigatoria"><option value="true">Sim</option><option value="false">Não</option></select>
+          </div>
+          <div><label>Ordem</label><input class="aulaOrdem" type="number" value="0" /></div>
+        </div>
+        <div class="campo"><label>Descrição</label><textarea class="aulaDescricao"></textarea></div>
+        <button class="btn btn-azul salvarAula" data-modulo="${mod.id}">Salvar aula</button>
+        <div class="msg aulaMsg"></div>
+      </details>
+    `;
+    container.appendChild(card);
+
+    card.querySelector(".salvarAula").addEventListener("click", async (ev) => {
+      const moduloId = ev.target.dataset.modulo;
+      const titulo = card.querySelector(".aulaTitulo").value.trim();
+      const youtube_id = extrairIdYoutube(card.querySelector(".aulaYoutube").value.trim());
+      const material_url = card.querySelector(".aulaMaterial").value.trim();
+      const obrigatoria = card.querySelector(".aulaObrigatoria").value === "true";
+      const ordem = parseInt(card.querySelector(".aulaOrdem").value || "0", 10);
+      const descricao = card.querySelector(".aulaDescricao").value.trim();
+      const msgEl = card.querySelector(".aulaMsg");
+      if(!titulo){ msgEl.textContent = "Dê um título à aula."; msgEl.className = "msg erro"; return; }
+      const { error } = await sb.from("curso_aulas").insert({ modulo_id: moduloId, titulo, youtube_id, material_url, obrigatoria, ordem, descricao });
+      if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+      await carregarModulos();
+      await carregarProgresso();
+    });
+  }
+}
+
+// ---------- TAREFAS ----------
+document.getElementById("criarTarefaBtn").addEventListener("click", async () => {
+  const modulo_id = document.getElementById("novaTarefaModulo").value;
+  const tipo_entrega = document.getElementById("novaTarefaTipo").value;
+  const titulo = document.getElementById("novaTarefaTitulo").value.trim();
+  const prazo = document.getElementById("novaTarefaPrazo").value || null;
+  const instrucoes = document.getElementById("novaTarefaInstrucoes").value.trim();
+  const msgEl = document.getElementById("criarTarefaMsg");
+  if(!titulo || !modulo_id){ msgEl.textContent = "Escolha o módulo e dê um título."; msgEl.className = "msg erro"; return; }
+  const { error } = await sb.from("curso_tarefas").insert({ modulo_id, tipo_entrega, titulo, prazo, instrucoes });
+  if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = "Tarefa criada!"; msgEl.className = "msg ok";
+  document.getElementById("novaTarefaTitulo").value = "";
+  document.getElementById("novaTarefaInstrucoes").value = "";
+  await carregarTarefas();
+});
+
+async function carregarTarefas(){
+  const { data, error } = await sb.from("curso_tarefas").select("*, curso_modulos(titulo)").order("criado_em", { ascending: false });
+  if(error) return;
+  const tbody = document.getElementById("listaTarefas");
+  tbody.innerHTML = "";
+  (data || []).forEach(t => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(t.titulo)}</td><td>${escapeHtml(t.curso_modulos?.titulo || "")}</td><td>${t.tipo_entrega === "documento" ? "Documento/imagem" : "Link de vídeo"}</td><td>${t.prazo || "-"}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------- AVALIACOES ----------
+document.getElementById("criarAvaliacaoBtn").addEventListener("click", async () => {
+  const modulo_id = document.getElementById("novaAvaliacaoModulo").value;
+  const titulo = document.getElementById("novaAvaliacaoTitulo").value.trim();
+  const descricao = document.getElementById("novaAvaliacaoDescricao").value.trim();
+  const nota_maxima = parseFloat(document.getElementById("novaAvaliacaoNotaMax").value || "10");
+  const nota_minima_aprovacao = parseFloat(document.getElementById("novaAvaliacaoNotaMin").value || "7");
+  const msgEl = document.getElementById("criarAvaliacaoMsg");
+  if(!titulo || !modulo_id){ msgEl.textContent = "Escolha o módulo e dê um título."; msgEl.className = "msg erro"; return; }
+  const { error } = await sb.from("curso_avaliacoes").insert({ modulo_id, titulo, descricao, nota_maxima, nota_minima_aprovacao });
+  if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = "Avaliação criada!"; msgEl.className = "msg ok";
+  document.getElementById("novaAvaliacaoTitulo").value = "";
+  document.getElementById("novaAvaliacaoDescricao").value = "";
+  await carregarAvaliacoes();
+});
+
+async function carregarAvaliacoes(){
+  const { data, error } = await sb.from("curso_avaliacoes").select("*, curso_modulos(titulo)").order("criado_em", { ascending: false });
+  if(error) return;
+  const tbody = document.getElementById("listaAvaliacoes");
+  tbody.innerHTML = "";
+  (data || []).forEach(a => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.curso_modulos?.titulo || "")}</td><td>${a.nota_maxima}</td><td>${a.nota_minima_aprovacao}</td>`;
+    tbody.appendChild(tr);
+  });
+  preencherSelect(document.getElementById("notaAvaliacaoSelect"), data || [], "id", "titulo");
+}
+
+document.getElementById("lancarNotaBtn").addEventListener("click", async () => {
+  const avaliacao_id = document.getElementById("notaAvaliacaoSelect").value;
+  const aluno_id = document.getElementById("notaAlunoSelect").value;
+  const nota = parseFloat(document.getElementById("notaValor").value);
+  const observacoes = document.getElementById("notaObs").value.trim();
+  const msgEl = document.getElementById("lancarNotaMsg");
+  if(!avaliacao_id || !aluno_id || isNaN(nota)){ msgEl.textContent = "Preencha avaliação, aluno e nota."; msgEl.className = "msg erro"; return; }
+  const { error } = await sb.from("curso_notas").upsert({ avaliacao_id, aluno_id, nota, observacoes }, { onConflict: "avaliacao_id,aluno_id" });
+  if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = "Nota salva!"; msgEl.className = "msg ok";
+  document.getElementById("notaValor").value = "";
+  document.getElementById("notaObs").value = "";
+});
+
+// ---------- TRABALHOS (SUBMISSOES) ----------
+async function carregarSubmissoes(){
+  const { data, error } = await sb.from("curso_submissoes").select("*, curso_tarefas(titulo), curso_perfis(nome_completo)").order("enviado_em", { ascending: false });
+  if(error) return;
+  const tbody = document.getElementById("listaSubmissoes");
+  tbody.innerHTML = "";
+  (data || []).forEach(s => {
+    const tr = document.createElement("tr");
+    const envio = s.tipo_envio === "link"
+      ? `<a href="${escapeHtml(s.link_url)}" target="_blank" rel="noopener">abrir link</a>`
+      : `<a href="#" class="verArquivo" data-path="${escapeHtml(s.arquivo_path || '')}">ver arquivo</a>`;
+    tr.innerHTML = `
+      <td>${escapeHtml(s.curso_perfis?.nome_completo || "")}</td>
+      <td>${escapeHtml(s.curso_tarefas?.titulo || "")}</td>
+      <td>${envio}</td>
+      <td><span class="tag tag-${s.status}">${s.status}</span></td>
+      <td>${s.nota ?? "-"}</td>
+      <td>${escapeHtml(s.feedback || "")}</td>
+      <td>
+        <div class="linha-acoes">
+          <button class="btn btn-verde corrigir" data-id="${s.id}" data-status="aprovado">Aprovar</button>
+          <button class="btn btn-vermelho corrigir" data-id="${s.id}" data-status="reprovado">Reprovar</button>
+          <button class="btn btn-cinza corrigir" data-id="${s.id}" data-status="revisar">Pedir revisão</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.querySelectorAll(".verArquivo").forEach(a => {
+    a.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      const path = ev.target.dataset.path;
+      if(!path) return;
+      const { data } = await sb.storage.from("curso-trabalhos").createSignedUrl(path, 300);
+      if(data?.signedUrl) window.open(data.signedUrl, "_blank");
+    });
+  });
+
+  document.querySelectorAll(".corrigir").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const nota = prompt("Nota (opcional, pode deixar em branco):");
+      const feedback = prompt("Feedback para o aluno (opcional):");
+      const payload = { status: btn.dataset.status, avaliado_em: new Date().toISOString() };
+      if(nota) payload.nota = parseFloat(nota);
+      if(feedback) payload.feedback = feedback;
+      await sb.from("curso_submissoes").update(payload).eq("id", btn.dataset.id);
+      await carregarSubmissoes();
+    });
+  });
+}
+
+// ---------- PROGRESSO ----------
+async function carregarProgresso(){
+  const { count: totalAulas } = await sb.from("curso_aulas").select("*", { count: "exact", head: true }).eq("obrigatoria", true);
+  const tbody = document.getElementById("listaProgresso");
+  tbody.innerHTML = "";
+  for(const aluno of alunosCache){
+    const { count } = await sb.from("curso_progresso").select("*", { count: "exact", head: true }).eq("aluno_id", aluno.id).eq("assistida", true);
+    const { data: certRows } = await sb.rpc("curso_calcular_certificado", { p_aluno_id: aluno.id });
+    const cert = (certRows && certRows[0]) || null;
+    const tr = document.createElement("tr");
+    const statusHtml = cert?.status === "concluido"
+      ? '<span class="tag tag-aprovado">Concluído</span>'
+      : `<span class="tag tag-pendente">Em andamento</span> <small style="color:#777;">(${cert?.aulas_pendentes ?? "?"} aula(s), ${cert?.tarefas_pendentes ?? "?"} tarefa(s), ${cert?.avaliacoes_pendentes ?? "?"} avaliação(ões) pendentes)</small>`;
+    tr.innerHTML = `<td>${escapeHtml(aluno.nome_completo)}</td><td>${count || 0}</td><td>${totalAulas || 0}</td><td>${statusHtml}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ---------- UTIL ----------
+function preencherSelect(select, lista, valorCampo, textoCampo){
+  select.innerHTML = "";
+  (lista || []).forEach(item => {
+    const opt = document.createElement("option");
+    opt.value = item[valorCampo];
+    opt.textContent = item[textoCampo];
+    select.appendChild(opt);
+  });
+}
+function extrairIdYoutube(valor){
+  if(!valor) return "";
+  valor = valor.trim();
+  // já parece ser só o código (11 caracteres típicos do YouTube, sem barras/pontos)
+  if(/^[a-zA-Z0-9_-]{6,20}$/.test(valor) && !valor.includes("youtube") && !valor.includes("youtu.be")){
+    return valor;
+  }
+  const padroes = [
+    /(?:youtube\.com\/watch\?v=)([a-zA-Z0-9_-]+)/,
+    /(?:youtu\.be\/)([a-zA-Z0-9_-]+)/,
+    /(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/,
+    /(?:youtube\.com\/shorts\/)([a-zA-Z0-9_-]+)/
+  ];
+  for(const re of padroes){
+    const m = valor.match(re);
+    if(m) return m[1];
+  }
+  return valor; // não reconheceu — guarda como veio, pra não perder o dado
+}
+function escapeHtml(str){
+  if(str === null || str === undefined) return "";
+  return String(str).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+// Mantém sessão se já estiver logado
+sb.auth.getSession().then(({ data }) => {
+  if(data.session){
+    sessao = data.session;
+    sb.from("curso_perfis").select("*").eq("id", data.session.user.id).single().then(({ data: perfil }) => {
+      if(perfil && perfil.role === "admin" && perfil.ativo){
+        document.getElementById("loginScreen").style.display = "none";
+        document.getElementById("app").style.display = "block";
+        document.getElementById("nomeAdmin").textContent = "Logado como " + perfil.nome_completo;
+        carregarTudo();
+      }
+    });
+  }
+});
+</script>
+</body>
+</html>

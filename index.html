@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Curso de Formação de Faixas Pretas — FIKARJ</title>
+<style>
+  :root{
+    --azul:#00AFEF;
+    --verde:#009C37;
+    --vermelho:#BC002D;
+    --preto:#1a1a1a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,Segoe UI,Arial,sans-serif;
+    background:linear-gradient(135deg,var(--preto) 0%,#2a2a2a 100%);
+    color:#fff;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .caixa{
+    max-width:460px;
+    width:100%;
+    background:#fff;
+    color:var(--preto);
+    border-radius:16px;
+    padding:36px 28px;
+    box-shadow:0 10px 40px rgba(0,0,0,.4);
+    text-align:center;
+  }
+  .faixa{
+    height:6px;
+    width:64px;
+    background:linear-gradient(90deg,var(--azul),var(--verde),var(--vermelho));
+    margin:0 auto 20px;
+    border-radius:4px;
+  }
+  h1{
+    font-size:20px;
+    margin:0 0 6px;
+  }
+  p.sub{
+    color:#666;
+    font-size:14px;
+    margin:0 0 28px;
+  }
+  .opcoes{
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  a.btn{
+    display:block;
+    text-decoration:none;
+    padding:16px;
+    border-radius:10px;
+    font-weight:600;
+    font-size:15px;
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  a.btn:hover{
+    transform:translateY(-2px);
+    box-shadow:0 6px 16px rgba(0,0,0,.15);
+  }
+  a.btn-aluno{
+    background:var(--verde);
+    color:#fff;
+  }
+  a.btn-admin{
+    background:var(--azul);
+    color:#fff;
+  }
+  .rodape{
+    margin-top:28px;
+    font-size:11px;
+    color:#999;
+  }
+</style>
+</head>
+<body>
+  <div class="caixa">
+    <div class="faixa"></div>
+    <h1>Curso de Formação de Faixas Pretas</h1>
+    <p class="sub">Federação Interestilos de Karate do Rio de Janeiro — FIKARJ</p>
+    <div class="opcoes">
+      <a class="btn btn-aluno" href="aluno/">Sou aluno — acessar meu curso</a>
+      <a class="btn btn-admin" href="admin/">Painel do administrador</a>
+    </div>
+    <div class="rodape">FIKARJ — Formando campeões na vida e no esporte</div>
+  </div>
+</body>
+</html>

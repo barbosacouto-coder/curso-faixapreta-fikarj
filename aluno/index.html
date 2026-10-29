@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Área do Aluno — Curso de Formação de Faixas Pretas FIKARJ</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --azul:#00AFEF; --verde:#009C37; --vermelho:#BC002D; --preto:#1a1a1a;
+    --cinza-claro:#f4f6f8; --cinza-borda:#dde3e8; --branco:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--cinza-claro);color:var(--preto);}
+  header{
+    background:linear-gradient(90deg, var(--preto), #2a2a2a);color:white;padding:16px 20px;
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+    border-bottom:4px solid var(--verde);
+  }
+  header h1{font-size:18px;margin:0;font-weight:600;}
+  header .sub{font-size:12px;opacity:.75;}
+  #logoutBtn{background:var(--vermelho);color:white;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;}
+  main{max-width:900px;margin:0 auto;padding:20px;}
+
+  #loginScreen{
+    max-width:380px;margin:60px auto;background:white;border-radius:12px;padding:28px;
+    box-shadow:0 4px 18px rgba(0,0,0,.08);border-top:5px solid var(--verde);
+  }
+  #loginScreen h2{margin-top:0;font-size:18px;}
+  #loginScreen label{display:block;font-size:13px;margin:12px 0 4px;color:#444;}
+  #loginScreen input{width:100%;padding:10px;border:1px solid var(--cinza-borda);border-radius:6px;font-size:14px;}
+  #loginScreen button{margin-top:18px;width:100%;padding:11px;background:var(--verde);color:white;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;}
+  #loginErro{color:var(--vermelho);font-size:13px;margin-top:10px;min-height:16px;}
+
+  nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;}
+  nav.tabs button{background:white;border:1px solid var(--cinza-borda);padding:9px 14px;border-radius:999px;cursor:pointer;font-size:13px;color:#333;}
+  nav.tabs button.ativo{background:var(--verde);color:white;border-color:var(--verde);font-weight:600;}
+  section.painel{display:none;}
+  section.painel.ativo{display:block;}
+
+  .card{background:white;border-radius:10px;padding:18px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border:1px solid var(--cinza-borda);}
+  .card h3{margin-top:0;font-size:15px;}
+  .campo{margin-bottom:8px;}
+  .campo label{font-size:12px;color:#555;display:block;margin-bottom:3px;}
+  .campo input, .campo select, .campo textarea{width:100%;padding:8px;border:1px solid var(--cinza-borda);border-radius:6px;font-size:13px;}
+  .campo textarea{min-height:60px;}
+  .btn{border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;color:white;}
+  .btn-azul{background:var(--azul);}
+  .btn-verde{background:var(--verde);}
+  .btn-cinza{background:#777;}
+  .btn-desabilitado{background:#bbb;cursor:not-allowed;}
+  .msg{font-size:13px;margin-top:8px;}
+  .msg.ok{color:var(--verde);}
+  .msg.erro{color:var(--vermelho);}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;color:white;}
+  .tag-pendente{background:#999;}
+  .tag-aprovado{background:var(--verde);}
+  .tag-reprovado{background:var(--vermelho);}
+  .tag-revisar{background:#d78c00;}
+  .aula-item{border:1px solid var(--cinza-borda);border-radius:8px;padding:14px;margin-bottom:12px;}
+  .aula-item h4{margin:0 0 6px;font-size:14px;}
+  .aula-video{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;margin:10px 0;background:#000;}
+  .aula-video iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;}
+  .barra-progresso{background:#e6e9ec;border-radius:999px;height:10px;overflow:hidden;margin:8px 0;}
+  .barra-progresso-fill{background:var(--verde);height:100%;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--cinza-borda);vertical-align:top;}
+  th{color:#555;font-weight:600;background:#fafbfc;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <h2>Área do Aluno</h2>
+  <p style="font-size:13px;color:#666;">Curso de Formação de Faixas Pretas — FIKARJ</p>
+  <label>CPF</label>
+  <input id="loginCpf" placeholder="só números ou com pontuação" />
+  <label>Data de nascimento</label>
+  <input id="loginNascimento" type="date" />
+  <button id="loginBtn">Entrar</button>
+  <div id="loginErro"></div>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <div>
+      <h1>Curso de Formação de Faixas Pretas — FIKARJ</h1>
+      <div class="sub" id="nomeAluno"></div>
+    </div>
+    <button id="logoutBtn">Sair</button>
+  </header>
+
+  <main>
+    <nav class="tabs">
+      <button data-tab="aulas" class="ativo">Minhas Aulas</button>
+      <button data-tab="tarefas">Minhas Tarefas</button>
+      <button data-tab="notas">Minhas Notas</button>
+      <button data-tab="progresso">Meu Progresso</button>
+    </nav>
+
+    <!-- AULAS -->
+    <section class="painel ativo" id="tab-aulas">
+      <div id="listaAulasPorModulo"></div>
+    </section>
+
+    <!-- TAREFAS -->
+    <section class="painel" id="tab-tarefas">
+      <div id="listaTarefasAluno"></div>
+    </section>
+
+    <!-- NOTAS -->
+    <section class="painel" id="tab-notas">
+      <div class="card">
+        <h3>Minhas avaliações</h3>
+        <table>
+          <thead><tr><th>Avaliação</th><th>Nota</th><th>Situação</th><th>Observações</th></tr></thead>
+          <tbody id="listaNotasAluno"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PROGRESSO -->
+    <section class="painel" id="tab-progresso">
+      <div class="card">
+        <h3>Meu progresso no curso</h3>
+        <p id="progressoTexto" style="font-size:14px;"></p>
+        <div class="barra-progresso"><div class="barra-progresso-fill" id="progressoBarra" style="width:0%;"></div></div>
+        <p id="certificadoStatus" style="margin-top:14px;font-size:14px;font-weight:600;"></p>
+        <div id="certificadoBtnContainer" style="margin-top:10px;"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const SUPABASE_URL = "https://jhvbpssigakvhjfjqazc.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpodmJwc3NpZ2FrdmhqZmpxYXpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3OTU5MjcsImV4cCI6MjEwODM3MTkyN30.aDf6xB7B9XfPL49ZLCXi9PdDiKOPt4T_Anjxw98oyRE";
+const EDGE_LOGIN_ALUNO = SUPABASE_URL + "/functions/v1/curso-login-aluno";
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let alunoId = null;
+
+// ---------- LOGIN ----------
+document.getElementById("loginBtn").addEventListener("click", fazerLogin);
+document.getElementById("loginNascimento").addEventListener("keydown", (e) => { if (e.key === "Enter") fazerLogin(); });
+
+async function fazerLogin(){
+  const cpf = document.getElementById("loginCpf").value.trim();
+  const nascimento = document.getElementById("loginNascimento").value;
+  const erroEl = document.getElementById("loginErro");
+  erroEl.textContent = "";
+  if(!cpf || !nascimento){ erroEl.textContent = "Preencha CPF e data de nascimento."; return; }
+
+  erroEl.textContent = "Entrando...";
+  try{
+    const resp = await fetch(EDGE_LOGIN_ALUNO, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cpf, nascimento })
+    });
+    const dados = await resp.json();
+    if(!resp.ok){ erroEl.textContent = dados.erro || "Não foi possível entrar."; return; }
+
+    await sb.auth.setSession({ access_token: dados.access_token, refresh_token: dados.refresh_token });
+    const { data: userData } = await sb.auth.getUser();
+    alunoId = userData.user.id;
+
+    erroEl.textContent = "";
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    document.getElementById("nomeAluno").textContent = "Olá, " + dados.nome_completo;
+    carregarTudo();
+  }catch(e){
+    erroEl.textContent = "Erro de conexão: " + e.message;
+  }
+}
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await sb.auth.signOut();
+  location.reload();
+});
+
+// ---------- TABS ----------
+document.querySelectorAll("nav.tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("ativo"));
+    document.querySelectorAll("section.painel").forEach(s => s.classList.remove("ativo"));
+    btn.classList.add("ativo");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("ativo");
+  });
+});
+
+async function carregarTudo(){
+  await carregarAulas();
+  await carregarTarefas();
+  await carregarNotas();
+  await carregarProgresso();
+}
+
+// ---------- AULAS ----------
+async function carregarAulas(){
+  const { data: modulos, error: modErr } = await sb.from("curso_modulos").select("*").order("ordem");
+  const { data: progresso } = await sb.from("curso_progresso").select("aula_id, assistida").eq("aluno_id", alunoId);
+  const assistidasSet = new Set((progresso || []).filter(p => p.assistida).map(p => p.aula_id));
+
+  const container = document.getElementById("listaAulasPorModulo");
+  container.innerHTML = "";
+  if(modErr || !modulos || !modulos.length){
+    container.innerHTML = '<div class="card">Nenhum módulo disponível ainda.</div>';
+    return;
+  }
+
+  for(const mod of modulos){
+    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem");
+    const card = document.createElement("div");
+    card.className = "card";
+    let aulasHtml = "";
+    (aulas || []).forEach(a => {
+      const assistida = assistidasSet.has(a.id);
+      aulasHtml += `
+        <div class="aula-item">
+          <h4>${escapeHtml(a.titulo)} ${a.obrigatoria ? "" : '<span style="font-weight:normal;color:#999;">(opcional)</span>'}</h4>
+          <p style="font-size:13px;color:#555;">${escapeHtml(a.descricao || "")}</p>
+          ${a.youtube_id ? `<div class="aula-video"><iframe src="https://www.youtube.com/embed/${encodeURIComponent(a.youtube_id)}" allowfullscreen></iframe></div>` : ""}
+          ${a.material_url ? `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>` : ""}
+          <button class="btn ${assistida ? "btn-cinza" : "btn-verde"} marcarAssistida" data-aula="${a.id}" ${assistida ? "disabled" : ""}>
+            ${assistida ? "✓ Aula assistida" : "Marcar aula como assistida"}
+          </button>
+        </div>
+      `;
+    });
+    card.innerHTML = `<h3>${escapeHtml(mod.titulo)}</h3><p style="font-size:13px;color:#555;">${escapeHtml(mod.descricao || "")}</p>${aulasHtml || '<p style="color:#999;">Nenhuma aula neste módulo ainda.</p>'}`;
+    container.appendChild(card);
+  }
+
+  document.querySelectorAll(".marcarAssistida").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const aulaId = btn.dataset.aula;
+      await sb.from("curso_progresso").upsert(
+        { aluno_id: alunoId, aula_id: aulaId, assistida: true, assistida_em: new Date().toISOString() },
+        { onConflict: "aluno_id,aula_id" }
+      );
+      await carregarAulas();
+      await carregarProgresso();
+    });
+  });
+}
+
+// ---------- TAREFAS ----------
+async function carregarTarefas(){
+  const { data: tarefas, error } = await sb.from("curso_tarefas").select("*, curso_modulos(titulo)").order("criado_em");
+  const { data: minhasSubmissoes } = await sb.from("curso_submissoes").select("*").eq("aluno_id", alunoId);
+  const porTarefa = {};
+  (minhasSubmissoes || []).forEach(s => { porTarefa[s.tarefa_id] = s; });
+
+  const container = document.getElementById("listaTarefasAluno");
+  container.innerHTML = "";
+  if(error || !tarefas || !tarefas.length){
+    container.innerHTML = '<div class="card">Nenhuma tarefa publicada ainda.</div>';
+    return;
+  }
+
+  tarefas.forEach(t => {
+    const envio = porTarefa[t.id];
+    const card = document.createElement("div");
+    card.className = "card";
+
+    let statusHtml = "";
+    if(envio){
+      statusHtml = `
+        <p>Status: <span class="tag tag-${envio.status}">${envio.status}</span></p>
+        ${envio.nota != null ? `<p>Nota: <strong>${envio.nota}</strong></p>` : ""}
+        ${envio.feedback ? `<p>Feedback do instrutor: ${escapeHtml(envio.feedback)}</p>` : ""}
+      `;
+    }
+
+    const podeReenviar = !envio || envio.status === "pendente" || envio.status === "revisar";
+
+    card.innerHTML = `
+      <h3>${escapeHtml(t.titulo)} <small style="font-weight:normal;color:#777;">(${escapeHtml(t.curso_modulos?.titulo || "")})</small></h3>
+      <p style="font-size:13px;color:#555;">${escapeHtml(t.instrucoes || "")}</p>
+      ${t.prazo ? `<p style="font-size:12px;color:#777;">Prazo: ${t.prazo}</p>` : ""}
+      ${statusHtml}
+      ${podeReenviar ? `
+        <div class="campo">
+          ${t.tipo_entrega === "documento"
+            ? `<label>Enviar arquivo (documento ou imagem)</label><input type="file" class="arquivoInput" data-tarefa="${t.id}" />`
+            : `<label>Link do vídeo (YouTube/Drive)</label><input type="text" class="linkInput" data-tarefa="${t.id}" placeholder="https://..." />`
+          }
+        </div>
+        <button class="btn btn-azul enviarTarefa" data-tarefa="${t.id}" data-tipo="${t.tipo_entrega}">${envio ? "Reenviar" : "Enviar"}</button>
+        <div class="msg envioMsg" data-tarefa-msg="${t.id}"></div>
+      ` : ""}
+    `;
+    container.appendChild(card);
+  });
+
+  document.querySelectorAll(".enviarTarefa").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const tarefaId = btn.dataset.tarefa;
+      const tipo = btn.dataset.tipo;
+      const msgEl = document.querySelector(`[data-tarefa-msg="${tarefaId}"]`);
+      msgEl.textContent = "Enviando..."; msgEl.className = "msg envioMsg";
+
+      try{
+        let payload = { tarefa_id: tarefaId, aluno_id: alunoId, status: "pendente" };
+
+        if(tipo === "documento"){
+          const input = document.querySelector(`.arquivoInput[data-tarefa="${tarefaId}"]`);
+          const arquivo = input.files[0];
+          if(!arquivo){ msgEl.textContent = "Escolha um arquivo."; msgEl.className = "msg envioMsg erro"; return; }
+          const caminho = `${alunoId}/${tarefaId}-${Date.now()}-${arquivo.name}`;
+          const { error: upErr } = await sb.storage.from("curso-trabalhos").upload(caminho, arquivo, { upsert: true });
+          if(upErr){ msgEl.textContent = "Erro ao enviar arquivo: " + upErr.message; msgEl.className = "msg envioMsg erro"; return; }
+          payload.tipo_envio = "arquivo";
+          payload.arquivo_path = caminho;
+        } else {
+          const input = document.querySelector(`.linkInput[data-tarefa="${tarefaId}"]`);
+          const link = input.value.trim();
+          if(!link){ msgEl.textContent = "Cole o link do vídeo."; msgEl.className = "msg envioMsg erro"; return; }
+          payload.tipo_envio = "link";
+          payload.link_url = link;
+        }
+
+        const { error: subErr } = await sb.from("curso_submissoes").upsert(payload, { onConflict: "tarefa_id,aluno_id" });
+        if(subErr){ msgEl.textContent = "Erro ao enviar: " + subErr.message; msgEl.className = "msg envioMsg erro"; return; }
+
+        msgEl.textContent = "Enviado com sucesso!"; msgEl.className = "msg envioMsg ok";
+        await carregarTarefas();
+      }catch(e){
+        msgEl.textContent = "Erro: " + e.message; msgEl.className = "msg envioMsg erro";
+      }
+    });
+  });
+}
+
+// ---------- NOTAS ----------
+async function carregarNotas(){
+  const { data: notas, error } = await sb.from("curso_notas").select("*, curso_avaliacoes(titulo, nota_minima_aprovacao)").eq("aluno_id", alunoId);
+  const tbody = document.getElementById("listaNotasAluno");
+  tbody.innerHTML = "";
+  if(error || !notas || !notas.length){
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#999;">Nenhuma nota lançada ainda.</td></tr>';
+    return;
+  }
+  notas.forEach(n => {
+    const aprovado = n.nota >= (n.curso_avaliacoes?.nota_minima_aprovacao ?? 0);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(n.curso_avaliacoes?.titulo || "")}</td>
+      <td>${n.nota}</td>
+      <td>${aprovado ? '<span class="tag tag-aprovado">Aprovado</span>' : '<span class="tag tag-reprovado">Abaixo da média</span>'}</td>
+      <td>${escapeHtml(n.observacoes || "")}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------- PROGRESSO ----------
+async function carregarProgresso(){
+  const { count: totalObrigatorias } = await sb.from("curso_aulas").select("*", { count: "exact", head: true }).eq("obrigatoria", true);
+  const { data: progresso } = await sb.from("curso_progresso").select("assistida").eq("aluno_id", alunoId).eq("assistida", true);
+  const assistidas = (progresso || []).length;
+  const total = totalObrigatorias || 0;
+  const pct = total > 0 ? Math.round((assistidas / total) * 100) : 0;
+
+  document.getElementById("progressoTexto").textContent = `Você assistiu ${assistidas} de ${total} aulas obrigatórias.`;
+  document.getElementById("progressoBarra").style.width = pct + "%";
+
+  const { data: certRows, error: certErro } = await sb.rpc("curso_calcular_certificado", { p_aluno_id: alunoId });
+  const cert = (certRows && certRows[0]) || null;
+  const certEl = document.getElementById("certificadoStatus");
+  const certBtnContainer = document.getElementById("certificadoBtnContainer");
+  certBtnContainer.innerHTML = "";
+
+  if(certErro || !cert){
+    certEl.textContent = "Não foi possível calcular o status de conclusão agora.";
+    certEl.style.color = "#777";
+    return;
+  }
+
+  if(cert.status === "concluido"){
+    certEl.textContent = "🏅 Parabéns! Você concluiu todos os requisitos do curso.";
+    certEl.style.color = "#009C37";
+    const btn = document.createElement("button");
+    btn.className = "btn btn-verde";
+    btn.textContent = "Baixar certificado (PDF)";
+    btn.addEventListener("click", () => gerarCertificadoPdf(cert));
+    certBtnContainer.appendChild(btn);
+  } else {
+    const pendencias = [];
+    if(cert.aulas_pendentes > 0) pendencias.push(`${cert.aulas_pendentes} aula(s) obrigatória(s) não assistida(s)`);
+    if(cert.tarefas_pendentes > 0) pendencias.push(`${cert.tarefas_pendentes} tarefa(s) sem aprovação`);
+    if(cert.avaliacoes_pendentes > 0) pendencias.push(`${cert.avaliacoes_pendentes} avaliação(ões) sem nota mínima`);
+    certEl.textContent = pendencias.length
+      ? "Ainda falta: " + pendencias.join(", ") + "."
+      : "Curso em andamento.";
+    certEl.style.color = "#777";
+  }
+}
+
+function gerarCertificadoPdf(cert){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const nome = document.getElementById("nomeAluno").textContent.replace("Olá, ", "");
+
+  doc.setFillColor(26,26,26);
+  doc.rect(0, 0, 297, 12, "F");
+  doc.setFillColor(0,175,239);
+  doc.rect(0, 12, 297, 3, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(26);
+  doc.setTextColor(26,26,26);
+  doc.text("Certificado de Conclusão", 148.5, 50, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(14);
+  doc.text("Curso de Formação de Faixas Pretas — FIKARJ", 148.5, 62, { align: "center" });
+
+  doc.setFontSize(12);
+  doc.text("Certificamos que", 148.5, 85, { align: "center" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(0,175,239);
+  doc.text(nome, 148.5, 98, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+  doc.setTextColor(26,26,26);
+  doc.text("concluiu com êxito todos os requisitos do Curso de Formação de Faixas Pretas", 148.5, 112, { align: "center" });
+  doc.text("da Federação Interestilos de Karate do Rio de Janeiro (FIKARJ).", 148.5, 119, { align: "center" });
+
+  const dataEmissao = cert.emitido_em ? new Date(cert.emitido_em).toLocaleDateString("pt-BR") : "";
+  doc.setFontSize(10);
+  doc.setTextColor(100,100,100);
+  doc.text("Emitido em " + dataEmissao, 148.5, 140, { align: "center" });
+  doc.text("Código de verificação: " + (cert.codigo_verificacao || ""), 148.5, 147, { align: "center" });
+
+  doc.setDrawColor(0,175,239);
+  doc.line(100, 175, 197, 175);
+  doc.setFontSize(10);
+  doc.text("Roosevelt Couto Barbosa de Souza — Presidente da FIKARJ", 148.5, 182, { align: "center" });
+
+  doc.save("Certificado - " + nome + ".pdf");
+}
+
+// ---------- UTIL ----------
+function escapeHtml(str){
+  if(str === null || str === undefined) return "";
+  return String(str).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+// Mantém sessão se já estiver logado
+sb.auth.getSession().then(async ({ data }) => {
+  if(data.session){
+    const { data: userData } = await sb.auth.getUser();
+    if(!userData?.user) return;
+    const { data: perfil } = await sb.from("curso_perfis").select("*").eq("id", userData.user.id).maybeSingle();
+    if(perfil && perfil.ativo){
+      alunoId = userData.user.id;
+      document.getElementById("loginScreen").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      document.getElementById("nomeAluno").textContent = "Olá, " + perfil.nome_completo;
+      carregarTudo();
+    }
+  }
+});
+</script>
+</body>
+</html>
