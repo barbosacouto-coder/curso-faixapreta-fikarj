@@ -158,6 +158,7 @@
       <button data-tab="avaliacoes">Avaliações</button>
       <button data-tab="trabalhos">Trabalhos recebidos</button>
       <button data-tab="progresso">Progresso dos alunos</button>
+      <button data-tab="notasauto">Notas automáticas</button>
     </nav>
 
     <!-- ALUNOS -->
@@ -293,6 +294,32 @@
       </div>
     </section>
 
+    <!-- NOTAS AUTOMATICAS -->
+    <section class="painel" id="tab-notasauto">
+      <div class="card">
+        <h3>Respostas que não encontraram um aluno</h3>
+        <p style="font-size:13px;color:#555;">
+          Quando alguém responde um formulário com CPF que não existe, aluno inativo ou nome que não bate com o CPF,
+          a resposta fica aqui para você conferir. Se for um aluno de verdade, lance a nota na aba Avaliações e
+          depois clique em "Já resolvi".
+        </p>
+        <table>
+          <thead><tr><th>Quando</th><th>Avaliação</th><th>Nome informado</th><th>CPF informado</th><th>Associação</th><th>Pontos</th><th>Motivo</th><th>Ação</th></tr></thead>
+          <tbody id="listaPendentes"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Últimas tentativas recebidas</h3>
+        <p style="font-size:13px;color:#555;">
+          Só as 2 primeiras tentativas de cada aluno contam, e vale a maior nota. As demais aparecem como "não conta".
+        </p>
+        <table>
+          <thead><tr><th>Quando</th><th>Aluno</th><th>Avaliação</th><th>Tentativa</th><th>Pontos</th><th>Nota</th><th>Conta?</th></tr></thead>
+          <tbody id="listaTentativas"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- PROGRESSO -->
     <section class="painel" id="tab-progresso">
       <div class="card">
@@ -361,7 +388,60 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
   });
 });
 
+// ---------- NOTAS AUTOMATICAS ----------
+function dataBr(v){ return v ? new Date(v).toLocaleString("pt-BR") : ""; }
+
+async function carregarNotasAuto(){
+  const { data: pend } = await sb.from("curso_respostas_pendentes").select("*, curso_avaliacoes(titulo)").eq("resolvido", false).order("enviado_em", { ascending: false });
+  const tp = document.getElementById("listaPendentes");
+  tp.innerHTML = "";
+  if(!pend || !pend.length){
+    tp.innerHTML = '<tr><td colspan="8" style="color:#999;">Nenhuma resposta pendente.</td></tr>';
+  }
+  (pend || []).forEach(p => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(dataBr(p.enviado_em))}</td>
+      <td>${escapeHtml(p.curso_avaliacoes?.titulo || "")}</td>
+      <td>${escapeHtml(p.nome_informado || "")}</td>
+      <td>${escapeHtml(p.cpf_informado || "")}</td>
+      <td>${escapeHtml(p.associacao_informada || "")}</td>
+      <td>${escapeHtml(p.pontos ?? "")}</td>
+      <td>${escapeHtml(p.motivo || "")}</td>
+      <td><button class="btn btn-cinza resolverPendente" data-id="${p.id}">Já resolvi</button></td>
+    `;
+    tp.appendChild(tr);
+  });
+  document.querySelectorAll(".resolverPendente").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await sb.from("curso_respostas_pendentes").update({ resolvido: true }).eq("id", btn.dataset.id);
+      await carregarNotasAuto();
+    });
+  });
+
+  const { data: tent } = await sb.from("curso_tentativas").select("*, curso_perfis(nome_completo), curso_avaliacoes(titulo)").order("enviado_em", { ascending: false }).limit(200);
+  const tt = document.getElementById("listaTentativas");
+  tt.innerHTML = "";
+  if(!tent || !tent.length){
+    tt.innerHTML = '<tr><td colspan="7" style="color:#999;">Nenhuma tentativa recebida ainda.</td></tr>';
+  }
+  (tent || []).forEach(t => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(dataBr(t.enviado_em))}</td>
+      <td>${escapeHtml(t.curso_perfis?.nome_completo || "")}</td>
+      <td>${escapeHtml(t.curso_avaliacoes?.titulo || "")}</td>
+      <td>${escapeHtml(t.numero)}</td>
+      <td>${escapeHtml(t.pontos)}</td>
+      <td>${escapeHtml(t.nota)}</td>
+      <td>${t.contada ? '<span class="tag tag-aprovado">Conta</span>' : '<span class="tag tag-pendente">Não conta</span>'}</td>
+    `;
+    tt.appendChild(tr);
+  });
+}
+
 async function carregarTudo(){
+  carregarNotasAuto();
   await carregarModulos();
   await carregarAlunos();
   await carregarTarefas();
