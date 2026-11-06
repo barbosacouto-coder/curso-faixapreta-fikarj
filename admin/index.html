@@ -190,6 +190,21 @@
       </div>
 
       <div class="card">
+        <h3>Ativar ou desativar em lote</h3>
+        <p style="font-size:13px;color:#555;">Aluno inativo não consegue entrar no curso. O progresso e as notas dele são mantidos.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <button class="btn btn-verde" id="ativarTodosBtn">Ativar todos</button>
+          <button class="btn btn-cinza" id="desativarTodosBtn">Desativar todos</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="loteFaixaSelect" style="min-width:240px;"></select>
+          <button class="btn btn-verde" id="ativarFaixaBtn">Ativar esta graduação</button>
+          <button class="btn btn-cinza" id="desativarFaixaBtn">Desativar esta graduação</button>
+        </div>
+        <div id="loteMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
         <h3>Alunos cadastrados</h3>
         <table>
           <thead><tr><th>Nome</th><th>CPF</th><th>Faixa</th><th>Associação</th><th>Registro FIKARJ</th><th>CNKB</th><th>Status</th><th>Ações</th></tr></thead>
@@ -548,7 +563,47 @@ async function carregarAlunos(){
     });
   });
   preencherSelect(document.getElementById("notaAlunoSelect"), alunosCache, "id", "nome_completo");
+  preencherFaixasLote();
 }
+
+// ---------- ATIVAR / DESATIVAR EM LOTE ----------
+function preencherFaixasLote(){
+  const sel = document.getElementById("loteFaixaSelect");
+  const atual = sel.value;
+  const contagem = {};
+  alunosCache.forEach(a => {
+    const f = a.faixa || "";
+    contagem[f] = contagem[f] || { total: 0, ativos: 0 };
+    contagem[f].total++;
+    if(a.ativo) contagem[f].ativos++;
+  });
+  sel.innerHTML = "";
+  Object.keys(contagem).sort().forEach(f => {
+    const o = document.createElement("option");
+    o.value = f;
+    o.textContent = `${f || "(sem graduação)"} — ${contagem[f].ativos}/${contagem[f].total} ativos`;
+    sel.appendChild(o);
+  });
+  if(atual && contagem[atual]) sel.value = atual;
+}
+
+async function ativarEmLote(ativo, faixa){
+  const msgEl = document.getElementById("loteMsg");
+  const alvo = alunosCache.filter(a => (faixa === null || (a.faixa || "") === faixa) && a.ativo !== ativo);
+  const acao = ativo ? "ativar" : "desativar";
+  const escopo = faixa === null ? "TODOS os alunos" : `os alunos da graduação "${faixa || "(sem graduação)"}"`;
+  if(!alvo.length){ msgEl.textContent = `Nada a fazer: ${escopo} já estão ${ativo ? "ativos" : "inativos"}.`; msgEl.className = "msg"; return; }
+  if(!confirm(`Confirma ${acao} ${escopo}? Serão alterados ${alvo.length} aluno(s).`)) return;
+  const { error } = await sb.from("curso_perfis").update({ ativo }).eq("role", "aluno").in("id", alvo.map(a => a.id));
+  if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = `${alvo.length} aluno(s) ${ativo ? "ativados" : "desativados"}.`;
+  msgEl.className = "msg ok";
+  await carregarAlunos();
+}
+document.getElementById("ativarTodosBtn").addEventListener("click", () => ativarEmLote(true, null));
+document.getElementById("desativarTodosBtn").addEventListener("click", () => ativarEmLote(false, null));
+document.getElementById("ativarFaixaBtn").addEventListener("click", () => ativarEmLote(true, document.getElementById("loteFaixaSelect").value));
+document.getElementById("desativarFaixaBtn").addEventListener("click", () => ativarEmLote(false, document.getElementById("loteFaixaSelect").value));
 
 // ---------- MODULOS E AULAS ----------
 document.getElementById("criarModuloBtn").addEventListener("click", async () => {
