@@ -344,21 +344,94 @@ async function carregarTarefas(){
 // ---------- NOTAS ----------
 async function carregarAvaliacoesDisponiveis(){
   const divEl = document.getElementById("listaAvaliacoesDisponiveis");
-  const { data: avaliacoes, error: avErro } = await sb.from("curso_avaliacoes").select("id, titulo, descricao, link_url");
+  const { data: avaliacoes, error: avErro } = await sb.from("curso_avaliacoes").select("id, titulo, descricao, link_url, no_site");
   const { data: notasFeitas } = await sb.from("curso_notas").select("avaliacao_id").eq("aluno_id", alunoId);
+  const { data: tentativas } = await sb.from("curso_tentativas").select("avaliacao_id").eq("aluno_id", alunoId);
   const idsComNota = new Set((notasFeitas || []).map(n => n.avaliacao_id));
-  const pendentes = (avaliacoes || []).filter(a => !idsComNota.has(a.id));
+  const qtdTent = {};
+  (tentativas || []).forEach(t => { qtdTent[t.avaliacao_id] = (qtdTent[t.avaliacao_id] || 0) + 1; });
+  // avaliação no site: continua disponível até usar as 2 tentativas que contam
+  const pendentes = (avaliacoes || []).filter(a => a.no_site ? (qtdTent[a.id] || 0) < 2 : !idsComNota.has(a.id));
   if(avErro || !pendentes.length){
     divEl.innerHTML = '<p style="color:#999;">Nenhuma avaliação disponível no momento.</p>';
     return;
   }
-  divEl.innerHTML = pendentes.map(a => `
+  divEl.innerHTML = pendentes.map(a => {
+    let acao;
+    if(a.no_site){
+      const n = (qtdTent[a.id] || 0) + 1;
+      acao = `<button class="btn btn-verde abrirAvaliacao" data-id="${a.id}">Fazer avaliação (tentativa ${n} de 2)</button>`;
+    } else if(a.link_url){
+      acao = `<a href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">Ir para a avaliação</a>`;
+    } else {
+      acao = '<span style="color:#999;font-size:13px;">Aguarde instruções do professor.</span>';
+    }
+    return `
     <div style="border-top:1px solid #eee;padding:10px 0;">
       <strong>${escapeHtml(a.titulo)}</strong>
       ${a.descricao ? `<p style="font-size:13px;color:#555;margin:4px 0;">${escapeHtml(a.descricao)}</p>` : ""}
-      ${a.link_url ? `<a href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">Ir para a avaliação</a>` : '<span style="color:#999;font-size:13px;">Aguarde instruções do professor.</span>'}
-    </div>
-  `).join("");
+      ${acao}
+      <div class="avaliacaoArea" id="area-${a.id}"></div>
+    </div>`;
+  }).join("");
+  divEl.querySelectorAll(".abrirAvaliacao").forEach(btn => {
+    btn.addEventListener("click", () => abrirAvaliacaoNoSite(btn.dataset.id, btn));
+  });
+}
+
+async function abrirAvaliacaoNoSite(avaliacaoId, botao){
+  const area = document.getElementById("area-" + avaliacaoId);
+  botao.disabled = true;
+  area.innerHTML = '<p style="color:#999;">Carregando questões...</p>';
+  const { data: questoes, error } = await sb.rpc("curso_questoes_da_avaliacao", { p_avaliacao: avaliacaoId });
+  if(error || !questoes || !questoes.length){
+    area.innerHTML = '<p class="msg erro">Não foi possível carregar a avaliação. ' + escapeHtml(error ? error.message : "") + '</p>';
+    botao.disabled = false;
+    return;
+  }
+  const letras = ["A","B","C","D","E","F"];
+  area.innerHTML = `
+    <form class="formAvaliacao" style="margin-top:12px;">
+      ${questoes.map(q => `
+        <fieldset style="border:1px solid var(--cinza-borda);border-radius:8px;margin:10px 0;padding:10px 12px;">
+          <legend style="font-weight:600;font-size:14px;padding:0 4px;">${q.ordem}. ${escapeHtml(q.enunciado)}</legend>
+          ${q.opcoes.map((op, i) => `
+            <label style="display:block;padding:5px 0;font-size:14px;cursor:pointer;">
+              <input type="radio" name="q${q.ordem}" value="${i}"> ${letras[i]}) ${escapeHtml(op)}
+            </label>`).join("")}
+        </fieldset>`).join("")}
+      <button type="submit" class="btn btn-verde">Enviar respostas</button>
+      <div class="msg envioAv"></div>
+    </form>`;
+  const form = area.querySelector("form");
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const msg = form.querySelector(".envioAv");
+    const respostas = [];
+    for(const q of questoes){
+      const marcada = form.querySelector(`input[name="q${q.ordem}"]:checked`);
+      if(!marcada){ msg.textContent = `Falta responder a questão ${q.ordem}.`; msg.className = "msg envioAv erro"; return; }
+      respostas[q.ordem - 1] = parseInt(marcada.value, 10);
+    }
+    if(!confirm("Enviar as respostas? Esta tentativa será registrada.")) return;
+    const enviar = form.querySelector("button[type=submit]");
+    enviar.disabled = true; enviar.className = "btn btn-desabilitado";
+    msg.textContent = "Corrigindo..."; msg.className = "msg envioAv";
+    const { data, error: envErro } = await sb.rpc("curso_enviar_avaliacao", { p_avaliacao: avaliacaoId, p_respostas: respostas });
+    if(envErro || !data || !data.length){
+      msg.textContent = "Erro ao enviar: " + (envErro ? envErro.message : "sem resposta");
+      msg.className = "msg envioAv erro";
+      enviar.disabled = false; enviar.className = "btn btn-verde";
+      return;
+    }
+    const r = data[0];
+    area.innerHTML = `<div style="margin-top:12px;padding:12px;border-radius:8px;background:var(--cinza-claro);">
+      <strong>Você acertou ${r.acertos} de ${r.total} questões — nota ${r.nota}.</strong><br>
+      ${r.contada ? `Sua nota vigente nesta avaliação é <strong>${r.nota_vigente}</strong>.` : "Esta tentativa não conta para a nota (só as 2 primeiras contam)."}
+    </div>`;
+    await carregarNotas();
+    setTimeout(carregarAvaliacoesDisponiveis, 4000);
+  });
 }
 
 async function carregarNotas(){
