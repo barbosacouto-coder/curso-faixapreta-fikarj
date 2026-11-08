@@ -284,14 +284,14 @@ async function carregarTarefas(){
     const podeReenviar = !envio || envio.status === "pendente" || envio.status === "revisar";
 
     card.innerHTML = `
-      <h3>${escapeHtml(t.titulo)} <small style="font-weight:normal;color:#777;">(${escapeHtml(t.curso_modulos?.titulo || "")})</small></h3>
+      <h3>${escapeHtml(t.titulo)}${t.curso_modulos?.titulo ? ` <small style="font-weight:normal;color:#777;">(${escapeHtml(t.curso_modulos.titulo)})</small>` : ""}</h3>
       <p style="font-size:13px;color:#555;">${escapeHtml(t.instrucoes || "")}</p>
       ${t.prazo ? `<p style="font-size:12px;color:#777;">Prazo: ${t.prazo}</p>` : ""}
       ${statusHtml}
       ${podeReenviar ? `
         <div class="campo">
           ${t.tipo_entrega === "documento"
-            ? `<label>Enviar arquivo (documento ou imagem)</label><input type="file" class="arquivoInput" data-tarefa="${t.id}" />`
+            ? `<label>Enviar arquivo (documento ou imagem)</label><input type="file" class="arquivoInput" data-tarefa="${t.id}" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,image/*" />`
             : `<label>Link do vídeo (YouTube/Drive)</label><input type="text" class="linkInput" data-tarefa="${t.id}" placeholder="https://..." />`
           }
         </div>
