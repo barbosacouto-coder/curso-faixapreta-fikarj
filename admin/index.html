@@ -301,6 +301,19 @@
     <!-- TRABALHOS -->
     <section class="painel" id="tab-trabalhos">
       <div class="card">
+        <h3>Enviar trabalho em nome de um aluno</h3>
+        <p style="font-size:13px;color:#555;">Use quando o aluno mandar o trabalho por fora (WhatsApp, e-mail). O envio aparece na lista abaixo, igual a um envio feito pelo próprio aluno. Se o aluno já tiver enviado essa tarefa, o envio é substituído.</p>
+        <div class="grid-form">
+          <div><label>Aluno</label><select id="envAdmAluno"></select></div>
+          <div><label>Tarefa</label><select id="envAdmTarefa"></select></div>
+          <div id="envAdmArquivoBox"><label>Arquivo</label><input id="envAdmArquivo" type="file" /></div>
+          <div id="envAdmLinkBox" style="display:none;"><label>Link do vídeo</label><input id="envAdmLink" placeholder="https://..." /></div>
+        </div>
+        <button class="btn btn-azul" style="margin-top:12px;" id="envAdmBtn">Enviar trabalho do aluno</button>
+        <div id="envAdmMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
         <h3>Trabalhos enviados pelos alunos</h3>
         <table>
           <thead><tr><th>Aluno</th><th>Tarefa</th><th>Envio</th><th>Status</th><th>Nota</th><th>Feedback</th><th>Ações</th></tr></thead>
@@ -564,6 +577,7 @@ async function carregarAlunos(){
   });
   preencherSelect(document.getElementById("notaAlunoSelect"), alunosCache, "id", "nome_completo");
   preencherFaixasLote();
+  if(typeof prepararEnvioAdmin === "function") prepararEnvioAdmin();
 }
 
 // ---------- ATIVAR / DESATIVAR EM LOTE ----------
@@ -756,8 +770,62 @@ document.getElementById("lancarNotaBtn").addEventListener("click", async () => {
   document.getElementById("notaObs").value = "";
 });
 
+// ---------- ENVIAR TRABALHO EM NOME DO ALUNO ----------
+let tarefasEnvAdm = [];
+async function prepararEnvioAdmin(){
+  const selA = document.getElementById("envAdmAluno");
+  const selT = document.getElementById("envAdmTarefa");
+  const a0 = selA.value, t0 = selT.value;
+  const { data } = await sb.from("curso_tarefas").select("id, titulo, tipo_entrega, curso_modulos(titulo)").order("criado_em");
+  tarefasEnvAdm = data || [];
+  selA.innerHTML = ""; selT.innerHTML = "";
+  alunosCache.forEach(a => { const o = document.createElement("option"); o.value = a.id; o.textContent = a.nome_completo; selA.appendChild(o); });
+  tarefasEnvAdm.forEach(t => { const o = document.createElement("option"); o.value = t.id; o.textContent = `${t.titulo} (${t.curso_modulos?.titulo || ""})`; selT.appendChild(o); });
+  if(a0) selA.value = a0;
+  if(t0) selT.value = t0;
+  alternarTipoEnvAdm();
+}
+function alternarTipoEnvAdm(){
+  const t = tarefasEnvAdm.find(x => x.id === document.getElementById("envAdmTarefa").value);
+  const ehLink = !!t && t.tipo_entrega !== "documento";
+  document.getElementById("envAdmArquivoBox").style.display = ehLink ? "none" : "";
+  document.getElementById("envAdmLinkBox").style.display = ehLink ? "" : "none";
+}
+document.getElementById("envAdmTarefa").addEventListener("change", alternarTipoEnvAdm);
+document.getElementById("envAdmBtn").addEventListener("click", async () => {
+  const msgEl = document.getElementById("envAdmMsg");
+  const alunoId = document.getElementById("envAdmAluno").value;
+  const tarefaId = document.getElementById("envAdmTarefa").value;
+  const t = tarefasEnvAdm.find(x => x.id === tarefaId);
+  const aluno = alunosCache.find(x => x.id === alunoId);
+  if(!alunoId || !t){ msgEl.textContent = "Escolha o aluno e a tarefa. Se não houver tarefa, crie uma na aba Tarefas."; msgEl.className = "msg erro"; return; }
+  const payload = { tarefa_id: tarefaId, aluno_id: alunoId, status: "pendente", nota: null, feedback: null, avaliado_em: null, enviado_em: new Date().toISOString() };
+  try{
+    if(t.tipo_entrega === "documento"){
+      const arquivo = document.getElementById("envAdmArquivo").files[0];
+      if(!arquivo){ msgEl.textContent = "Escolha o arquivo."; msgEl.className = "msg erro"; return; }
+      msgEl.textContent = "Enviando..."; msgEl.className = "msg";
+      const nomeSeguro = arquivo.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]/g, "_");
+      const caminho = `${alunoId}/${tarefaId}-${Date.now()}-${nomeSeguro}`;
+      const { error: upErr } = await sb.storage.from("curso-trabalhos").upload(caminho, arquivo, { upsert: true });
+      if(upErr){ msgEl.textContent = "Erro ao enviar arquivo: " + upErr.message; msgEl.className = "msg erro"; return; }
+      payload.tipo_envio = "arquivo"; payload.arquivo_path = caminho; payload.link_url = null;
+    } else {
+      const link = document.getElementById("envAdmLink").value.trim();
+      if(!/^https?:\/\//i.test(link)){ msgEl.textContent = "Cole o link completo, começando com https://"; msgEl.className = "msg erro"; return; }
+      payload.tipo_envio = "link"; payload.link_url = link; payload.arquivo_path = null;
+    }
+    const { error } = await sb.from("curso_submissoes").upsert(payload, { onConflict: "tarefa_id,aluno_id" });
+    if(error){ msgEl.textContent = "Erro ao registrar: " + error.message; msgEl.className = "msg erro"; return; }
+    msgEl.textContent = `Trabalho de ${aluno?.nome_completo || "aluno"} enviado.`; msgEl.className = "msg ok";
+    document.getElementById("envAdmArquivo").value = ""; document.getElementById("envAdmLink").value = "";
+    await carregarSubmissoes();
+  }catch(e){ msgEl.textContent = "Erro: " + e.message; msgEl.className = "msg erro"; }
+});
+
 // ---------- TRABALHOS (SUBMISSOES) ----------
 async function carregarSubmissoes(){
+  prepararEnvioAdmin();
   const { data, error } = await sb.from("curso_submissoes").select("*, curso_tarefas(titulo), curso_perfis(nome_completo)").order("enviado_em", { ascending: false });
   if(error) return;
   const tbody = document.getElementById("listaSubmissoes");
