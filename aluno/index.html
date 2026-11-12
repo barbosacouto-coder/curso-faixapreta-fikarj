@@ -210,6 +210,8 @@ async function carregarAulas(){
   const { data: progresso } = await sb.from("curso_progresso").select("aula_id, assistida").eq("aluno_id", alunoId);
   const assistidasSet = new Set((progresso || []).filter(p => p.assistida).map(p => p.aula_id));
 
+  limparPlayersYT();
+  const aulasComVideo = [];
   const container = document.getElementById("listaAulasPorModulo");
   container.innerHTML = "";
   if(modErr || !modulos || !modulos.length){
@@ -224,15 +226,18 @@ async function carregarAulas(){
     let aulasHtml = "";
     (aulas || []).forEach(a => {
       const assistida = assistidasSet.has(a.id);
+      if(a.youtube_id) aulasComVideo.push({ id: a.id, youtube_id: a.youtube_id, assistida });
       aulasHtml += `
         <div class="aula-item">
           <h4>${escapeHtml(a.titulo)} ${a.obrigatoria ? "" : '<span style="font-weight:normal;color:#999;">(opcional)</span>'}</h4>
           <p style="font-size:13px;color:#555;">${escapeHtml(a.descricao || "")}</p>
-          ${a.youtube_id ? `<div class="aula-video"><iframe src="https://www.youtube.com/embed/${encodeURIComponent(a.youtube_id)}" allowfullscreen></iframe></div>` : ""}
+          ${a.youtube_id ? `<div class="aula-video"><div id="yt-${a.id}"></div></div>` : ""}
           ${a.material_url ? `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>` : ""}
-          <button class="btn ${assistida ? "btn-cinza" : "btn-verde"} marcarAssistida" data-aula="${a.id}" ${assistida ? "disabled" : ""}>
-            ${assistida ? "✓ Aula assistida" : "Marcar aula como assistida"}
-          </button>
+          ${a.youtube_id
+            ? `<p class="aula-status" id="st-${a.id}" style="font-size:13px;margin:6px 0 0;color:${assistida ? "#009C37" : "#555"};font-weight:${assistida ? "600" : "400"};">${assistida ? "✓ Aula assistida" : "Assista ao vídeo até o fim: a aula é marcada sozinha quando você assistir pelo menos 90%."}</p>`
+            : `<button class="btn ${assistida ? "btn-cinza" : "btn-verde"} marcarAssistida" data-aula="${a.id}" ${assistida ? "disabled" : ""}>
+                ${assistida ? "✓ Aula assistida" : "Marcar aula como assistida"}
+              </button>`}
         </div>
       `;
     });
@@ -251,6 +256,76 @@ async function carregarAulas(){
       await carregarProgresso();
     });
   });
+
+  aulasComVideo.forEach(a => garantirApiYouTube(() => criarPlayerYT(a)));
+}
+
+// ---------- VÍDEO OBRIGATÓRIO (YouTube) ----------
+// O aluno precisa assistir de verdade: o site manda um "batimento" a cada 5 s
+// enquanto o vídeo toca, e o SERVIDOR só marca a aula ao somar ~90% do vídeo.
+let limpezasYT = [];
+let filaYT = [];
+function limparPlayersYT(){ limpezasYT.forEach(f => { try{ f(); }catch(e){} }); limpezasYT = []; }
+function garantirApiYouTube(cb){
+  if(window.YT && window.YT.Player){ cb(); return; }
+  filaYT.push(cb);
+  if(!document.getElementById("ytapi")){
+    const sc = document.createElement("script");
+    sc.id = "ytapi";
+    sc.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(sc);
+  }
+}
+window.onYouTubeIframeAPIReady = () => { filaYT.splice(0).forEach(f => f()); };
+
+function atualizarStatusAula(aulaId, r){
+  const el = document.getElementById("st-" + aulaId);
+  if(!el) return;
+  if(r.assistida){
+    el.textContent = "✓ Aula assistida";
+    el.style.color = "#009C37"; el.style.fontWeight = "600";
+  }else{
+    const pct = Math.min(100, Math.round(100 * Number(r.segundos) / Number(r.duracao || 1)));
+    el.textContent = `Assistido: ${pct}% — continue até o fim (mínimo 90%).`;
+  }
+}
+
+function criarPlayerYT(aula){
+  const alvo = document.getElementById("yt-" + aula.id);
+  if(!alvo) return;
+  let timer = null;
+  let player = null;
+  let concluida = aula.assistida;
+  const enviar = async () => {
+    if(concluida || !player || !player.getDuration) return;
+    const dur = player.getDuration();
+    const pos = player.getCurrentTime();
+    if(!dur || dur < 5) return;
+    const { data, error } = await sb.rpc("curso_registrar_batimento", { p_aula: aula.id, p_pos: pos, p_dur: dur });
+    const r = Array.isArray(data) ? data[0] : data;
+    if(error || !r) return;
+    atualizarStatusAula(aula.id, r);
+    if(r.assistida){
+      concluida = true;
+      if(timer){ clearInterval(timer); timer = null; }
+      carregarProgresso();
+    }
+  };
+  player = new YT.Player("yt-" + aula.id, {
+    videoId: aula.youtube_id,
+    playerVars: { rel: 0 },
+    events: {
+      onStateChange: (e) => {
+        if(e.data === YT.PlayerState.PLAYING){
+          if(!timer && !concluida){ enviar(); timer = setInterval(enviar, 5000); }
+        }else{
+          if(timer){ clearInterval(timer); timer = null; }
+          if(e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) enviar();
+        }
+      }
+    }
+  });
+  limpezasYT.push(() => { if(timer) clearInterval(timer); if(player && player.destroy) player.destroy(); });
 }
 
 // ---------- TAREFAS ----------
