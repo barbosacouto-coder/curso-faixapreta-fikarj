@@ -636,7 +636,9 @@ sb.auth.getSession().then(async ({ data }) => {
       alunoId = userData.user.id;
       document.getElementById("loginScreen").style.display = "none";
       document.getElementById("app").style.display = "block";
-      document.getElementById("nomeAluno").textContent = "Olá, " + perfil.nome_completo;
+      const {data: cadastro} = await sb.rpc("curso_cadastro_vigente_fikarj");
+      const vigente = cadastro?.find(a => a.id === perfil.id);
+      document.getElementById("nomeAluno").textContent = "Olá, " + (vigente?.nome ?? perfil.nome_completo);
       carregarTudo();
     }
   }
