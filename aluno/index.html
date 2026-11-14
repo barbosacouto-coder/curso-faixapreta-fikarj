@@ -200,7 +200,7 @@ async function fazerLogin(){
     erroEl.textContent = "";
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
-    await mostrarCadastroAluno(dados);
+    await mostrarCadastroAluno({ ...dados, id: alunoId });
     carregarTudo();
   }catch(e){
     erroEl.textContent = "Erro de conexão: " + e.message;
