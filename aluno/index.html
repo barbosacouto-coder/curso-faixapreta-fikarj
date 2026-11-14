@@ -87,6 +87,7 @@
     <div>
       <h1>Curso de Formação de Faixas Pretas — FIKARJ</h1>
       <div class="sub" id="nomeAluno"></div>
+      <div class="sub" id="dadosCadastroAluno" hidden></div>
     </div>
     <button id="logoutBtn">Sair</button>
   </header>
@@ -150,6 +151,31 @@ let alunoId = null;
 document.getElementById("loginBtn").addEventListener("click", fazerLogin);
 document.getElementById("loginNascimento").addEventListener("keydown", (e) => { if (e.key === "Enter") fazerLogin(); });
 
+async function mostrarCadastroAluno(perfil){
+  const nome = document.getElementById("nomeAluno");
+  const detalhes = document.getElementById("dadosCadastroAluno");
+  nome.textContent = "Olá, " + perfil.nome_completo;
+  detalhes.textContent = "";
+  detalhes.hidden = true;
+
+  try {
+    const {data, error} = await sb.rpc("curso_cadastro_vigente_fikarj");
+    if (error) throw error;
+    const vigente = data?.find(a => a.id === perfil.id);
+    if (!vigente) return;
+
+    nome.textContent = "Olá, " + (vigente.nome ?? perfil.nome_completo);
+    const campos = [
+      vigente.faixa && "Graduação: " + vigente.faixa,
+      vigente.associacao && "Associação: " + vigente.associacao
+    ].filter(Boolean);
+    detalhes.textContent = campos.join(" · ");
+    detalhes.hidden = campos.length === 0;
+  } catch (erro) {
+    console.warn("Cadastro central indisponível na área do aluno.");
+  }
+}
+
 async function fazerLogin(){
   const cpf = document.getElementById("loginCpf").value.trim();
   const nascimento = document.getElementById("loginNascimento").value;
@@ -174,7 +200,7 @@ async function fazerLogin(){
     erroEl.textContent = "";
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
-    document.getElementById("nomeAluno").textContent = "Olá, " + dados.nome_completo;
+    await mostrarCadastroAluno(dados);
     carregarTudo();
   }catch(e){
     erroEl.textContent = "Erro de conexão: " + e.message;
@@ -636,9 +662,7 @@ sb.auth.getSession().then(async ({ data }) => {
       alunoId = userData.user.id;
       document.getElementById("loginScreen").style.display = "none";
       document.getElementById("app").style.display = "block";
-      const {data: cadastro} = await sb.rpc("curso_cadastro_vigente_fikarj");
-      const vigente = cadastro?.find(a => a.id === perfil.id);
-      document.getElementById("nomeAluno").textContent = "Olá, " + (vigente?.nome ?? perfil.nome_completo);
+      await mostrarCadastroAluno(perfil);
       carregarTudo();
     }
   }
