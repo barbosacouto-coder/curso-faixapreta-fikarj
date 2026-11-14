@@ -607,18 +607,44 @@ function preencherFaixasLote(){
   if(atual && contagem[atual]) sel.value = atual;
 }
 
+function confirmarNaPagina(msgEl, texto){
+  // Confirmação dentro da própria página (o navegador pode bloquear caixas de diálogo)
+  return new Promise(resolve => {
+    msgEl.className = "msg";
+    msgEl.innerHTML = "";
+    const t = document.createElement("span");
+    t.textContent = texto + " ";
+    const sim = document.createElement("button");
+    sim.className = "btn btn-verde"; sim.textContent = "Confirmar";
+    const nao = document.createElement("button");
+    nao.className = "btn btn-cinza"; nao.textContent = "Cancelar"; nao.style.marginLeft = "8px";
+    sim.addEventListener("click", () => { msgEl.innerHTML = ""; resolve(true); });
+    nao.addEventListener("click", () => { msgEl.textContent = "Cancelado."; resolve(false); });
+    msgEl.append(t, sim, nao);
+  });
+}
+
 async function ativarEmLote(ativo, faixa){
   const msgEl = document.getElementById("loteMsg");
   const alvo = alunosCache.filter(a => (faixa === null || (a.faixa || "") === faixa) && a.ativo !== ativo);
   const acao = ativo ? "ativar" : "desativar";
   const escopo = faixa === null ? "TODOS os alunos" : `os alunos da graduação "${faixa || "(sem graduação)"}"`;
   if(!alvo.length){ msgEl.textContent = `Nada a fazer: ${escopo} já estão ${ativo ? "ativos" : "inativos"}.`; msgEl.className = "msg"; return; }
-  if(!confirm(`Confirma ${acao} ${escopo}? Serão alterados ${alvo.length} aluno(s).`)) return;
-  const { error } = await sb.from("curso_perfis").update({ ativo }).eq("role", "aluno").in("id", alvo.map(a => a.id));
+  if(!(await confirmarNaPagina(msgEl, `Confirma ${acao} ${escopo}? Serão alterados ${alvo.length} aluno(s).`))) return;
+  msgEl.textContent = "Aguarde…"; msgEl.className = "msg";
+  const { data, error } = await sb.from("curso_perfis").update({ ativo }).eq("role", "aluno").in("id", alvo.map(a => a.id)).select("id");
   if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
-  msgEl.textContent = `${alvo.length} aluno(s) ${ativo ? "ativados" : "desativados"}.`;
-  msgEl.className = "msg ok";
+  const feitos = (data || []).length;
+  if(feitos !== alvo.length){
+    msgEl.textContent = `Atenção: só ${feitos} de ${alvo.length} aluno(s) foram alterados. Recarregue a página e tente de novo.`;
+    msgEl.className = "msg erro";
+  } else {
+    msgEl.textContent = `${feitos} aluno(s) ${ativo ? "ativados" : "desativados"}.`;
+    msgEl.className = "msg ok";
+  }
+  const txt = msgEl.textContent, cls = msgEl.className;
   await carregarAlunos();
+  msgEl.textContent = txt; msgEl.className = cls;
 }
 document.getElementById("ativarTodosBtn").addEventListener("click", () => ativarEmLote(true, null));
 document.getElementById("desativarTodosBtn").addEventListener("click", () => ativarEmLote(false, null));
