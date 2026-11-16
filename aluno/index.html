@@ -246,24 +246,29 @@ async function carregarAulas(){
   }
 
   for(const mod of modulos){
-    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem");
+    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem").order("criado_em").order("id");
     const card = document.createElement("div");
     card.className = "card";
     let aulasHtml = "";
+    let anteriorOk = true; // a próxima aula só libera quando a anterior estiver marcada
     (aulas || []).forEach(a => {
       const assistida = assistidasSet.has(a.id);
-      if(a.youtube_id) aulasComVideo.push({ id: a.id, youtube_id: a.youtube_id, assistida });
+      const liberada = anteriorOk;
+      anteriorOk = anteriorOk && assistida;
+      if(a.youtube_id && liberada) aulasComVideo.push({ id: a.id, youtube_id: a.youtube_id, assistida });
       aulasHtml += `
         <div class="aula-item">
           <h4>${escapeHtml(a.titulo)} ${a.obrigatoria ? "" : '<span style="font-weight:normal;color:#999;">(opcional)</span>'}</h4>
-          <p style="font-size:13px;color:#555;">${escapeHtml(a.descricao || "")}</p>
-          ${a.youtube_id ? `<div class="aula-video"><div id="yt-${a.id}"></div></div>` : ""}
-          ${a.material_url ? `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>` : ""}
-          ${a.youtube_id
-            ? `<p class="aula-status" id="st-${a.id}" style="font-size:13px;margin:6px 0 0;color:${assistida ? "#009C37" : "#555"};font-weight:${assistida ? "600" : "400"};">${assistida ? "✓ Aula assistida" : "Assista ao vídeo até o fim: a aula é marcada sozinha quando você assistir pelo menos 90%."}</p>`
-            : `<button class="btn ${assistida ? "btn-cinza" : "btn-verde"} marcarAssistida" data-aula="${a.id}" ${assistida ? "disabled" : ""}>
-                ${assistida ? "✓ Aula assistida" : "Marcar aula como assistida"}
-              </button>`}
+          ${liberada ? `
+            <p style="font-size:13px;color:#555;">${escapeHtml(a.descricao || "")}</p>
+            ${a.youtube_id ? `<div class="aula-video"><div id="yt-${a.id}"></div></div>` : ""}
+            ${a.material_url ? `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>` : ""}
+            ${a.youtube_id ? `<p class="aula-status" id="st-${a.id}" style="font-size:13px;margin:6px 0 0;color:#555;">Se assistir pelo menos 90% do vídeo, a aula é marcada sozinha. Se preferir, marque a caixinha abaixo.</p>` : ""}
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-weight:${assistida ? "600" : "400"};color:${assistida ? "#009C37" : "#222"};">
+              <input type="checkbox" class="marcarAula" data-aula="${a.id}" ${assistida ? "checked" : ""} style="width:20px;height:20px;" />
+              Aula vista / lida
+            </label>
+          ` : `<p style="font-size:13px;color:#999;">🔒 Marque a aula anterior como vista para liberar esta.</p>`}
         </div>
       `;
     });
@@ -271,13 +276,12 @@ async function carregarAulas(){
     container.appendChild(card);
   }
 
-  document.querySelectorAll(".marcarAssistida").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const aulaId = btn.dataset.aula;
-      await sb.from("curso_progresso").upsert(
-        { aluno_id: alunoId, aula_id: aulaId, assistida: true, assistida_em: new Date().toISOString() },
-        { onConflict: "aluno_id,aula_id" }
-      );
+  document.querySelectorAll(".marcarAula").forEach(cb => {
+    cb.addEventListener("change", async () => {
+      const marcar = cb.checked;
+      cb.disabled = true;
+      const { error } = await sb.rpc("curso_marcar_aula", { p_aula: cb.dataset.aula, p_marcada: marcar });
+      if(error){ alert("Não foi possível salvar: " + error.message); }
       await carregarAulas();
       await carregarProgresso();
     });
@@ -334,6 +338,7 @@ function criarPlayerYT(aula){
     if(r.assistida){
       concluida = true;
       if(timer){ clearInterval(timer); timer = null; }
+      carregarAulas();
       carregarProgresso();
     }
   };
@@ -360,6 +365,8 @@ async function carregarTarefas(){
   const { data: minhasSubmissoes } = await sb.from("curso_submissoes").select("*").eq("aluno_id", alunoId);
   const porTarefa = {};
   (minhasSubmissoes || []).forEach(s => { porTarefa[s.tarefa_id] = s; });
+  const { data: minhasMarcas } = await sb.from("curso_tarefa_marcas").select("tarefa_id, feita").eq("aluno_id", alunoId);
+  const feitas = new Set((minhasMarcas || []).filter(m => m.feita).map(m => m.tarefa_id));
 
   const container = document.getElementById("listaTarefasAluno");
   container.innerHTML = "";
@@ -388,6 +395,10 @@ async function carregarTarefas(){
       <h3>${escapeHtml(t.titulo)}${t.curso_modulos?.titulo ? ` <small style="font-weight:normal;color:#777;">(${escapeHtml(t.curso_modulos.titulo)})</small>` : ""}</h3>
       <p style="font-size:13px;color:#555;">${escapeHtml(t.instrucoes || "")}</p>
       ${t.prazo ? `<p style="font-size:12px;color:#777;">Prazo: ${t.prazo}</p>` : ""}
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer;font-weight:${feitas.has(t.id) ? "600" : "400"};color:${feitas.has(t.id) ? "#009C37" : "#222"};">
+        <input type="checkbox" class="marcarTarefa" data-tarefa="${t.id}" ${feitas.has(t.id) ? "checked" : ""} style="width:20px;height:20px;" />
+        Tarefa executada
+      </label>
       ${statusHtml}
       ${podeReenviar ? `
         <div class="campo">
@@ -401,6 +412,17 @@ async function carregarTarefas(){
       ` : ""}
     `;
     container.appendChild(card);
+  });
+
+  document.querySelectorAll(".marcarTarefa").forEach(cb => {
+    cb.addEventListener("change", async () => {
+      const marcar = cb.checked;
+      cb.disabled = true;
+      const { error } = await sb.rpc("curso_marcar_tarefa", { p_tarefa: cb.dataset.tarefa, p_feita: marcar });
+      if(error){ alert("Não foi possível salvar: " + error.message); }
+      await carregarTarefas();
+      await carregarProgresso();
+    });
   });
 
   document.querySelectorAll(".enviarTarefa").forEach(btn => {
@@ -558,13 +580,14 @@ async function carregarNotas(){
 
 // ---------- PROGRESSO ----------
 async function carregarProgresso(){
-  const { count: totalObrigatorias } = await sb.from("curso_aulas").select("*", { count: "exact", head: true }).eq("obrigatoria", true);
-  const { data: progresso } = await sb.from("curso_progresso").select("assistida").eq("aluno_id", alunoId).eq("assistida", true);
-  const assistidas = (progresso || []).length;
-  const total = totalObrigatorias || 0;
+  const { data: aulasPub } = await sb.from("curso_aulas").select("id");
+  const { data: progresso } = await sb.from("curso_progresso").select("aula_id").eq("aluno_id", alunoId).eq("assistida", true);
+  const idsPub = new Set((aulasPub || []).map(a => a.id));
+  const assistidas = (progresso || []).filter(p => idsPub.has(p.aula_id)).length;
+  const total = idsPub.size;
   const pct = total > 0 ? Math.round((assistidas / total) * 100) : 0;
 
-  document.getElementById("progressoTexto").textContent = `Você assistiu ${assistidas} de ${total} aulas obrigatórias.`;
+  document.getElementById("progressoTexto").textContent = `Você marcou ${assistidas} de ${total} aulas como vistas.`;
   document.getElementById("progressoBarra").style.width = pct + "%";
 
   const { data: certRows, error: certErro } = await sb.rpc("curso_calcular_certificado", { p_aluno_id: alunoId });
@@ -589,8 +612,8 @@ async function carregarProgresso(){
     certBtnContainer.appendChild(btn);
   } else {
     const pendencias = [];
-    if(cert.aulas_pendentes > 0) pendencias.push(`${cert.aulas_pendentes} aula(s) obrigatória(s) não assistida(s)`);
-    if(cert.tarefas_pendentes > 0) pendencias.push(`${cert.tarefas_pendentes} tarefa(s) sem aprovação`);
+    if(cert.aulas_pendentes > 0) pendencias.push(`${cert.aulas_pendentes} aula(s) sem a caixinha marcada`);
+    if(cert.tarefas_pendentes > 0) pendencias.push(`${cert.tarefas_pendentes} tarefa(s) sem a caixinha marcada ou sem aprovação`);
     if(cert.avaliacoes_pendentes > 0) pendencias.push(`${cert.avaliacoes_pendentes} avaliação(ões) sem nota mínima`);
     certEl.textContent = pendencias.length
       ? "Ainda falta: " + pendencias.join(", ") + "."
