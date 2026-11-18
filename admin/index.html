@@ -111,6 +111,8 @@
   table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
   th,td{text-align:left;padding:8px;border-bottom:1px solid var(--cinza-borda);vertical-align:top;}
   th{color:#555;font-weight:600;background:#fafbfc;}
+  .barra-progresso{background:#e6e9ec;border-radius:999px;height:10px;overflow:hidden;margin:8px 0;}
+  .barra-progresso-fill{background:var(--verde);height:100%;}
   .tag{
     display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;color:white;
   }
@@ -160,6 +162,7 @@
       <button data-tab="progresso">Progresso dos alunos</button>
       <button data-tab="notasauto">Notas automáticas</button>
       <button data-tab="sugestoes">Sugestões de tema</button>
+      <button data-tab="meusalunos">Meus Alunos</button>
     </nav>
 
     <!-- ALUNOS -->
@@ -372,6 +375,17 @@
         </table>
       </div>
     </section>
+
+    <!-- MEUS ALUNOS (visão de professor para o próprio presidente, sem trocar de papel) -->
+    <section class="painel" id="tab-meusalunos">
+      <div class="card">
+        <h3>Minhas associações</h3>
+        <p style="font-size:13px;color:#555;margin-top:-4px;">Escolha de quais associações você quer ver o progresso, notas e parecer dos alunos (mesma visão de somente leitura do professor).</p>
+        <div id="meusAlunosAssocCheckboxes" style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;"></div>
+        <button class="btn btn-azul" id="verMeusAlunosBtn">Ver alunos</button>
+      </div>
+      <div id="listaMeusAlunos"></div>
+    </section>
   </main>
 </div>
 
@@ -476,6 +490,119 @@ async function carregarSugestoes(){
   });
 }
 
+// ---------- MEUS ALUNOS (visão de professor para o presidente, sem trocar de papel) ----------
+// Siglas das associações das quais o presidente é o professor responsável (confirmado por ele em 18/11/2026).
+const MINHAS_ASSOCIACOES_PADRAO = ["AFC", "FIKARJ-RJ"];
+
+async function carregarMeusAlunosAssocCheckboxes(){
+  const { data: assocs } = await sb
+    .from("curso_perfis")
+    .select("associacao")
+    .eq("role", "aluno")
+    .not("associacao", "is", null);
+  const nomes = [...new Set((assocs || []).map(a => a.associacao))].sort();
+  const container = document.getElementById("meusAlunosAssocCheckboxes");
+  container.innerHTML = "";
+  nomes.forEach(nome => {
+    const marcado = MINHAS_ASSOCIACOES_PADRAO.includes(nome);
+    const id = "assoc_" + nome.replace(/\W+/g, "_");
+    const label = document.createElement("label");
+    label.style = "display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;";
+    label.innerHTML = `<input type="checkbox" id="${id}" value="${escapeHtml(nome)}" ${marcado ? "checked" : ""}/> ${escapeHtml(nome)}`;
+    container.appendChild(label);
+  });
+}
+
+document.getElementById("verMeusAlunosBtn").addEventListener("click", carregarMeusAlunos);
+
+async function carregarMeusAlunos(){
+  const container = document.getElementById("listaMeusAlunos");
+  const associacoesEscolhidas = [...document.querySelectorAll("#meusAlunosAssocCheckboxes input:checked")].map(i => i.value);
+
+  if(!associacoesEscolhidas.length){
+    container.innerHTML = '<div class="card"><p style="color:#999;">Marque pelo menos uma associação acima.</p></div>';
+    return;
+  }
+
+  container.innerHTML = "<p>Carregando...</p>";
+
+  const { data: alunos, error: errAlunos } = await sb
+    .from("curso_perfis")
+    .select("id, nome_completo, faixa, associacao")
+    .eq("role", "aluno")
+    .in("associacao", associacoesEscolhidas)
+    .order("nome_completo");
+
+  if(errAlunos){
+    container.innerHTML = `<div class="card"><p class="msg erro">Erro ao carregar alunos: ${escapeHtml(errAlunos.message)}</p></div>`;
+    return;
+  }
+  if(!alunos || !alunos.length){
+    container.innerHTML = '<div class="card"><p style="color:#999;">Nenhum aluno encontrado nas associações marcadas.</p></div>';
+    return;
+  }
+
+  const [{ data: avaliacoes }, { data: tarefas }, { data: aulasObrigatorias }] = await Promise.all([
+    sb.from("curso_avaliacoes").select("id, titulo, nota_minima_aprovacao").eq("publicado", true),
+    sb.from("curso_tarefas").select("id, titulo").eq("publicado", true),
+    sb.from("curso_aulas").select("id").eq("publicado", true).eq("obrigatoria", true),
+  ]);
+  const totalAulasObrig = (aulasObrigatorias || []).length;
+  const idsAulasObrig = new Set((aulasObrigatorias || []).map(a => a.id));
+
+  container.innerHTML = "";
+  for(const aluno of alunos){
+    const [{ data: progresso }, { data: notas }, { data: submissoes }] = await Promise.all([
+      sb.from("curso_progresso").select("aula_id, assistida").eq("aluno_id", aluno.id).eq("assistida", true),
+      sb.from("curso_notas").select("avaliacao_id, nota").eq("aluno_id", aluno.id),
+      sb.from("curso_submissoes").select("tarefa_id, status, nota, feedback").eq("aluno_id", aluno.id),
+    ]);
+    const assistidasObrig = (progresso || []).filter(p => idsAulasObrig.has(p.aula_id)).length;
+
+    const notasPorAvaliacao = {};
+    (notas || []).forEach(n => { notasPorAvaliacao[n.avaliacao_id] = n.nota; });
+    const linhasNotas = (avaliacoes || []).map(av => {
+      const nota = notasPorAvaliacao[av.id];
+      const aprovado = nota != null && nota >= av.nota_minima_aprovacao;
+      return `<tr><td>${escapeHtml(av.titulo)}</td><td>${nota != null ? nota : "—"}</td>
+        <td>${nota == null ? '<span class="tag tag-pendente">Sem nota</span>' : (aprovado ? '<span class="tag tag-aprovado">Aprovado</span>' : '<span class="tag tag-reprovado">Abaixo do mínimo</span>')}</td></tr>`;
+    }).join("");
+
+    const submissaoPorTarefa = {};
+    (submissoes || []).forEach(s => { submissaoPorTarefa[s.tarefa_id] = s; });
+    const linhasTarefas = (tarefas || []).map(t => {
+      const s = submissaoPorTarefa[t.id];
+      const status = s?.status || "não enviado";
+      const tagClasse = status === "aprovado" ? "tag-aprovado" : status === "reprovado" ? "tag-reprovado" : status === "revisar" ? "tag-revisar" : "tag-pendente";
+      return `<tr>
+        <td>${escapeHtml(t.titulo)}</td>
+        <td><span class="tag ${tagClasse}">${escapeHtml(status)}</span></td>
+        <td>${s?.nota != null ? s.nota : "—"}</td>
+        <td>${s?.feedback ? escapeHtml(s.feedback) : "—"}</td>
+      </tr>`;
+    }).join("");
+
+    const pctAulas = totalAulasObrig ? Math.round((assistidasObrig / totalAulasObrig) * 100) : 0;
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <h3>${escapeHtml(aluno.nome_completo)}${aluno.faixa ? ` <small style="font-weight:normal;color:#777;">(${escapeHtml(aluno.faixa)})</small>` : ""} <small style="font-weight:normal;color:#777;">— ${escapeHtml(aluno.associacao || "")}</small></h3>
+      <p style="font-size:13px;color:#555;">Aulas obrigatórias assistidas: ${assistidasObrig}/${totalAulasObrig}</p>
+      <div class="barra-progresso"><div class="barra-progresso-fill" style="width:${pctAulas}%;"></div></div>
+
+      <p style="font-size:13px;font-weight:600;margin:14px 0 2px;">Notas</p>
+      <table><thead><tr><th>Avaliação</th><th>Nota</th><th>Situação</th></tr></thead>
+      <tbody>${linhasNotas || '<tr><td colspan="3" style="color:#999;">Nenhuma avaliação publicada.</td></tr>'}</tbody></table>
+
+      <p style="font-size:13px;font-weight:600;margin:14px 0 2px;">Trabalhos e parecer</p>
+      <table><thead><tr><th>Tarefa</th><th>Status</th><th>Nota</th><th>Feedback</th></tr></thead>
+      <tbody>${linhasTarefas || '<tr><td colspan="4" style="color:#999;">Nenhuma tarefa publicada.</td></tr>'}</tbody></table>
+    `;
+    container.appendChild(card);
+  }
+}
+
 // ---------- NOTAS AUTOMATICAS ----------
 function dataBr(v){ return v ? new Date(v).toLocaleString("pt-BR") : ""; }
 
@@ -537,6 +664,7 @@ async function carregarTudo(){
   await carregarSubmissoes();
   await carregarProgresso();
   await carregarSugestoes();
+  await carregarMeusAlunosAssocCheckboxes();
 }
 
 // ---------- ALUNOS ----------
