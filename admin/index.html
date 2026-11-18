@@ -206,8 +206,9 @@
 
       <div class="card">
         <h3>Alunos cadastrados</h3>
+        <p style="font-size:13px;color:#555;margin:-6px 0 10px;">O professor responsável de uma associação consegue, com o mesmo login de aluno, consultar (somente leitura) o progresso, as notas e o parecer dos trabalhos dos alunos da própria associação. Use "Tornar professor" para dar esse papel a um aluno.</p>
         <table>
-          <thead><tr><th>Nome</th><th>CPF</th><th>Faixa</th><th>Associação</th><th>Registro FIKARJ</th><th>CNKB</th><th>Status</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Nome</th><th>CPF</th><th>Faixa</th><th>Associação</th><th>Registro FIKARJ</th><th>CNKB</th><th>Papel</th><th>Status</th><th>Ações</th></tr></thead>
           <tbody id="listaAlunos"></tbody>
         </table>
       </div>
@@ -549,7 +550,7 @@ document.getElementById("criarAlunoBtn").addEventListener("click", async () => {
 });
 
 async function carregarAlunos(){
-  const { data, error } = await sb.from("curso_perfis").select("*").eq("role", "aluno").order("nome_completo");
+  const { data, error } = await sb.from("curso_perfis").select("*").in("role", ["aluno", "professor"]).order("nome_completo");
   if(error) return;
       const {data: cadastro, error: erroCadastro} = await sb.rpc("curso_cadastro_vigente_fikarj");
       const vigentes = new Map((cadastro || []).map(a=>[a.id,a]));
@@ -569,8 +570,12 @@ async function carregarAlunos(){
       <td>${escapeHtml(a.associacao || "")}</td>
       <td>${escapeHtml(a.registro_fikarj ?? "")}</td>
       <td>${escapeHtml(a.cnkb || "")}</td>
+      <td>${a.role === "professor" ? '<span class="tag tag-aprovado">Professor</span>' : "Aluno"}</td>
       <td>${a.ativo ? '<span class="tag tag-aprovado">Ativo</span>' : '<span class="tag tag-reprovado">Inativo</span>'}</td>
-      <td><button class="btn btn-cinza toggle-ativo" data-id="${a.id}" data-ativo="${a.ativo}">${a.ativo ? "Desativar" : "Reativar"}</button></td>
+      <td>
+        <button class="btn btn-cinza toggle-ativo" data-id="${a.id}" data-ativo="${a.ativo}">${a.ativo ? "Desativar" : "Reativar"}</button>
+        <button class="btn btn-cinza toggle-professor" data-id="${a.id}" data-role="${a.role}" data-nome="${escapeHtml(a.nome_completo)}" data-associacao="${escapeHtml(a.associacao || "")}">${a.role === "professor" ? "Remover professor" : "Tornar professor"}</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -578,6 +583,23 @@ async function carregarAlunos(){
     btn.addEventListener("click", async () => {
       const novoStatus = btn.dataset.ativo !== "true";
       await sb.from("curso_perfis").update({ ativo: novoStatus }).eq("id", btn.dataset.id);
+      await carregarAlunos();
+    });
+  });
+  document.querySelectorAll(".toggle-professor").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const vaiVirarProfessor = btn.dataset.role !== "professor";
+      if(vaiVirarProfessor && !btn.dataset.associacao){
+        alert(`${btn.dataset.nome} não tem associação cadastrada — sem associação, o professor não enxergaria nenhum aluno. Cadastre a associação antes.`);
+        return;
+      }
+      const acao = vaiVirarProfessor
+        ? `Tornar "${btn.dataset.nome}" professor? Ele passará a ver (somente leitura) o progresso, as notas e o parecer dos trabalhos de todos os alunos da associação "${btn.dataset.associacao}".`
+        : `Remover o papel de professor de "${btn.dataset.nome}"? Ele volta a ser só aluno comum.`;
+      if(!confirm(acao)) return;
+      const novoRole = vaiVirarProfessor ? "professor" : "aluno";
+      const { error } = await sb.from("curso_perfis").update({ role: novoRole }).eq("id", btn.dataset.id);
+      if(error){ alert("Erro ao alterar papel: " + error.message); return; }
       await carregarAlunos();
     });
   });

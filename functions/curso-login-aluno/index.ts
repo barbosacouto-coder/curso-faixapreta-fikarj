@@ -62,7 +62,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: perfil, error: perfilErr } = await adminClient
       .from("curso_perfis")
-      .select("id, nome_completo, ativo")
+      .select("id, nome_completo, ativo, role, associacao")
       .eq("cpf", cpf)
       .eq("nascimento", nascimento)
       .maybeSingle();
@@ -107,6 +107,8 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         sucesso: true,
         nome_completo: perfil.nome_completo,
+        role: perfil.role,
+        associacao: perfil.associacao,
         access_token: sessaoData.session.access_token,
         refresh_token: sessaoData.session.refresh_token,
       }),

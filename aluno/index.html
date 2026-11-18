@@ -94,11 +94,18 @@
 
   <main>
     <nav class="tabs">
-      <button data-tab="aulas" class="ativo">Minhas Aulas</button>
-      <button data-tab="tarefas">Minhas Tarefas</button>
-      <button data-tab="notas">Minhas Notas</button>
-      <button data-tab="progresso">Meu Progresso</button>
+      <button data-tab="aulas" class="ativo" id="tabAulasBtn">Minhas Aulas</button>
+      <button data-tab="tarefas" id="tabTarefasBtn">Minhas Tarefas</button>
+      <button data-tab="notas" id="tabNotasBtn">Minhas Notas</button>
+      <button data-tab="progresso" id="tabProgressoBtn">Meu Progresso</button>
+      <button data-tab="professor" id="tabProfessorBtn" style="display:none;">Meus Alunos</button>
     </nav>
+
+    <!-- PROFESSOR (somente leitura, só aparece para quem tem o papel de professor) -->
+    <section class="painel" id="tab-professor">
+      <p style="font-size:13px;color:#555;margin:-4px 0 14px;">Progresso, notas e parecer dos trabalhos dos alunos da sua associação. Consulta somente leitura — a correção continua sendo feita pelo admin.</p>
+      <div id="listaAlunosProfessor"></div>
+    </section>
 
     <!-- AULAS -->
     <section class="painel ativo" id="tab-aulas">
@@ -146,6 +153,7 @@ const EDGE_LOGIN_ALUNO = SUPABASE_URL + "/functions/v1/curso-login-aluno";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let alunoId = null;
+let meuPapel = "aluno";
 
 // ---------- LOGIN ----------
 document.getElementById("loginBtn").addEventListener("click", fazerLogin);
@@ -196,12 +204,18 @@ async function fazerLogin(){
     await sb.auth.setSession({ access_token: dados.access_token, refresh_token: dados.refresh_token });
     const { data: userData } = await sb.auth.getUser();
     alunoId = userData.user.id;
+    meuPapel = dados.role || "aluno";
 
     erroEl.textContent = "";
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
     await mostrarCadastroAluno({ ...dados, id: alunoId });
-    carregarTudo();
+    if(meuPapel === "professor"){
+      ativarModoProfessor();
+      await carregarAlunosProfessor();
+    } else {
+      carregarTudo();
+    }
   }catch(e){
     erroEl.textContent = "Erro de conexão: " + e.message;
   }
@@ -221,6 +235,99 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
     document.getElementById("tab-" + btn.dataset.tab).classList.add("ativo");
   });
 });
+
+// ---------- MODO PROFESSOR (somente leitura) ----------
+function ativarModoProfessor(){
+  ["tabAulasBtn","tabTarefasBtn","tabNotasBtn","tabProgressoBtn"].forEach(id => {
+    document.getElementById(id).style.display = "none";
+  });
+  document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("ativo"));
+  document.querySelectorAll("section.painel").forEach(s => s.classList.remove("ativo"));
+  const btnProf = document.getElementById("tabProfessorBtn");
+  btnProf.style.display = "inline-block";
+  btnProf.classList.add("ativo");
+  document.getElementById("tab-professor").classList.add("ativo");
+}
+
+async function carregarAlunosProfessor(){
+  const container = document.getElementById("listaAlunosProfessor");
+  container.innerHTML = "<p>Carregando...</p>";
+
+  const { data: alunos, error: errAlunos } = await sb
+    .from("curso_perfis")
+    .select("id, nome_completo, faixa, associacao")
+    .eq("role", "aluno")
+    .order("nome_completo");
+
+  if(errAlunos){
+    container.innerHTML = `<div class="card"><p class="msg erro">Erro ao carregar alunos: ${escapeHtml(errAlunos.message)}</p></div>`;
+    return;
+  }
+  if(!alunos || !alunos.length){
+    container.innerHTML = '<div class="card"><p style="color:#999;">Nenhum aluno encontrado na sua associação.</p></div>';
+    return;
+  }
+
+  const [{ data: avaliacoes }, { data: tarefas }, { data: aulasObrigatorias }] = await Promise.all([
+    sb.from("curso_avaliacoes").select("id, titulo, nota_minima_aprovacao").eq("publicado", true),
+    sb.from("curso_tarefas").select("id, titulo").eq("publicado", true),
+    sb.from("curso_aulas").select("id").eq("publicado", true).eq("obrigatoria", true),
+  ]);
+  const totalAulasObrig = (aulasObrigatorias || []).length;
+  const idsAulasObrig = new Set((aulasObrigatorias || []).map(a => a.id));
+
+  container.innerHTML = "";
+  for(const aluno of alunos){
+    const [{ data: progresso }, { data: notas }, { data: submissoes }] = await Promise.all([
+      sb.from("curso_progresso").select("aula_id, assistida").eq("aluno_id", aluno.id).eq("assistida", true),
+      sb.from("curso_notas").select("avaliacao_id, nota").eq("aluno_id", aluno.id),
+      sb.from("curso_submissoes").select("tarefa_id, status, nota, feedback").eq("aluno_id", aluno.id),
+    ]);
+    const assistidasObrig = (progresso || []).filter(p => idsAulasObrig.has(p.aula_id)).length;
+
+    const notasPorAvaliacao = {};
+    (notas || []).forEach(n => { notasPorAvaliacao[n.avaliacao_id] = n.nota; });
+    const linhasNotas = (avaliacoes || []).map(av => {
+      const nota = notasPorAvaliacao[av.id];
+      const aprovado = nota != null && nota >= av.nota_minima_aprovacao;
+      return `<tr><td>${escapeHtml(av.titulo)}</td><td>${nota != null ? nota : "—"}</td>
+        <td>${nota == null ? '<span class="tag tag-pendente">Sem nota</span>' : (aprovado ? '<span class="tag tag-aprovado">Aprovado</span>' : '<span class="tag tag-reprovado">Abaixo do mínimo</span>')}</td></tr>`;
+    }).join("");
+
+    const submissaoPorTarefa = {};
+    (submissoes || []).forEach(s => { submissaoPorTarefa[s.tarefa_id] = s; });
+    const linhasTarefas = (tarefas || []).map(t => {
+      const s = submissaoPorTarefa[t.id];
+      const status = s?.status || "não enviado";
+      const tagClasse = status === "aprovado" ? "tag-aprovado" : status === "reprovado" ? "tag-reprovado" : status === "revisar" ? "tag-revisar" : "tag-pendente";
+      return `<tr>
+        <td>${escapeHtml(t.titulo)}</td>
+        <td><span class="tag ${tagClasse}">${escapeHtml(status)}</span></td>
+        <td>${s?.nota != null ? s.nota : "—"}</td>
+        <td>${s?.feedback ? escapeHtml(s.feedback) : "—"}</td>
+      </tr>`;
+    }).join("");
+
+    const pctAulas = totalAulasObrig ? Math.round((assistidasObrig / totalAulasObrig) * 100) : 0;
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <h3>${escapeHtml(aluno.nome_completo)}${aluno.faixa ? ` <small style="font-weight:normal;color:#777;">(${escapeHtml(aluno.faixa)})</small>` : ""}</h3>
+      <p style="font-size:13px;color:#555;">Aulas obrigatórias assistidas: ${assistidasObrig}/${totalAulasObrig}</p>
+      <div class="barra-progresso"><div class="barra-progresso-fill" style="width:${pctAulas}%;"></div></div>
+
+      <p style="font-size:13px;font-weight:600;margin:14px 0 2px;">Notas</p>
+      <table><thead><tr><th>Avaliação</th><th>Nota</th><th>Situação</th></tr></thead>
+      <tbody>${linhasNotas || '<tr><td colspan="3" style="color:#999;">Nenhuma avaliação publicada.</td></tr>'}</tbody></table>
+
+      <p style="font-size:13px;font-weight:600;margin:14px 0 2px;">Trabalhos e parecer</p>
+      <table><thead><tr><th>Tarefa</th><th>Status</th><th>Nota</th><th>Feedback</th></tr></thead>
+      <tbody>${linhasTarefas || '<tr><td colspan="4" style="color:#999;">Nenhuma tarefa publicada.</td></tr>'}</tbody></table>
+    `;
+    container.appendChild(card);
+  }
+}
 
 async function carregarTudo(){
   await carregarAulas();
