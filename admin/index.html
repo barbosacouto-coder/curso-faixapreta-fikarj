@@ -159,6 +159,7 @@
       <button data-tab="trabalhos">Trabalhos recebidos</button>
       <button data-tab="progresso">Progresso dos alunos</button>
       <button data-tab="notasauto">Notas automáticas</button>
+      <button data-tab="sugestoes">Sugestões de tema</button>
     </nav>
 
     <!-- ALUNOS -->
@@ -349,6 +350,18 @@
       </div>
     </section>
 
+    <!-- SUGESTÕES DE TEMA (conselho de mestres) -->
+    <section class="painel" id="tab-sugestoes">
+      <div class="card">
+        <h3>Sugestões de tema do conselho de mestres</h3>
+        <p style="font-size:13px;color:#555;">Temas sugeridos pelos membros do conselho (marcados na aba Alunos). Marque o status conforme for avaliando.</p>
+        <table>
+          <thead><tr><th>Quando</th><th>Mestre</th><th>Módulo</th><th>Sugestão</th><th>Status</th><th>Observação</th></tr></thead>
+          <tbody id="listaSugestoes"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- PROGRESSO -->
     <section class="painel" id="tab-progresso">
       <div class="card">
@@ -417,6 +430,52 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
   });
 });
 
+// ---------- SUGESTÕES DE TEMA (conselho de mestres) ----------
+const STATUS_SUGESTAO = { nova: "Nova", em_analise: "Em análise", planejada: "Planejada", arquivada: "Arquivada" };
+
+async function carregarSugestoes(){
+  const { data: sugestoes, error } = await sb
+    .from("curso_sugestoes_tema")
+    .select("*, curso_perfis!curso_sugestoes_tema_autor_id_fkey(nome_completo), curso_modulos(titulo)")
+    .order("criado_em", { ascending: false });
+  const tbody = document.getElementById("listaSugestoes");
+  tbody.innerHTML = "";
+  if(error){
+    tbody.innerHTML = `<tr><td colspan="6" class="msg erro">Erro ao carregar: ${escapeHtml(error.message)}</td></tr>`;
+    return;
+  }
+  if(!sugestoes || !sugestoes.length){
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#999;">Nenhuma sugestão enviada ainda.</td></tr>';
+    return;
+  }
+  sugestoes.forEach(s => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(dataBr(s.criado_em))}</td>
+      <td>${escapeHtml(s.curso_perfis?.nome_completo || "")}</td>
+      <td>${escapeHtml(s.curso_modulos?.titulo || "—")}</td>
+      <td>${escapeHtml(s.texto)}</td>
+      <td>
+        <select class="statusSugestao" data-id="${s.id}">
+          ${Object.entries(STATUS_SUGESTAO).map(([v, l]) => `<option value="${v}" ${s.status === v ? "selected" : ""}>${l}</option>`).join("")}
+        </select>
+      </td>
+      <td><input class="obsSugestao" data-id="${s.id}" value="${escapeHtml(s.observacao_admin || "")}" placeholder="Observação (opcional)" style="width:100%;" /></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll(".statusSugestao").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      await sb.from("curso_sugestoes_tema").update({ status: sel.value, atualizado_em: new Date().toISOString() }).eq("id", sel.dataset.id);
+    });
+  });
+  document.querySelectorAll(".obsSugestao").forEach(inp => {
+    inp.addEventListener("change", async () => {
+      await sb.from("curso_sugestoes_tema").update({ observacao_admin: inp.value, atualizado_em: new Date().toISOString() }).eq("id", inp.dataset.id);
+    });
+  });
+}
+
 // ---------- NOTAS AUTOMATICAS ----------
 function dataBr(v){ return v ? new Date(v).toLocaleString("pt-BR") : ""; }
 
@@ -477,6 +536,7 @@ async function carregarTudo(){
   await carregarAvaliacoes();
   await carregarSubmissoes();
   await carregarProgresso();
+  await carregarSugestoes();
 }
 
 // ---------- ALUNOS ----------
@@ -550,7 +610,7 @@ document.getElementById("criarAlunoBtn").addEventListener("click", async () => {
 });
 
 async function carregarAlunos(){
-  const { data, error } = await sb.from("curso_perfis").select("*").in("role", ["aluno", "professor"]).order("nome_completo");
+  const { data, error } = await sb.from("curso_perfis").select("*").in("role", ["aluno", "professor", "conselho"]).order("nome_completo");
   if(error) return;
       const {data: cadastro, error: erroCadastro} = await sb.rpc("curso_cadastro_vigente_fikarj");
       const vigentes = new Map((cadastro || []).map(a=>[a.id,a]));
@@ -570,11 +630,11 @@ async function carregarAlunos(){
       <td>${escapeHtml(a.associacao || "")}</td>
       <td>${escapeHtml(a.registro_fikarj ?? "")}</td>
       <td>${escapeHtml(a.cnkb || "")}</td>
-      <td>${a.role === "professor" ? '<span class="tag tag-aprovado">Professor</span>' : "Aluno"}</td>
+      <td>${a.role === "professor" ? '<span class="tag tag-aprovado">Professor</span>' : a.role === "conselho" ? '<span class="tag tag-aprovado">Conselho</span>' : "Aluno"}</td>
       <td>${a.ativo ? '<span class="tag tag-aprovado">Ativo</span>' : '<span class="tag tag-reprovado">Inativo</span>'}</td>
       <td>
         <button class="btn btn-cinza toggle-ativo" data-id="${a.id}" data-ativo="${a.ativo}">${a.ativo ? "Desativar" : "Reativar"}</button>
-        <button class="btn btn-cinza toggle-professor" data-id="${a.id}" data-role="${a.role}" data-nome="${escapeHtml(a.nome_completo)}" data-associacao="${escapeHtml(a.associacao || "")}">${a.role === "professor" ? "Remover professor" : "Tornar professor"}</button>
+        ${botoesPapel(a)}
       </td>
     `;
     tbody.appendChild(tr);
@@ -586,18 +646,19 @@ async function carregarAlunos(){
       await carregarAlunos();
     });
   });
-  document.querySelectorAll(".toggle-professor").forEach(btn => {
+  document.querySelectorAll(".toggle-papel").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const vaiVirarProfessor = btn.dataset.role !== "professor";
-      if(vaiVirarProfessor && !btn.dataset.associacao){
+      const novoRole = btn.dataset.novoRole;
+      if(novoRole === "professor" && !btn.dataset.associacao){
         alert(`${btn.dataset.nome} não tem associação cadastrada — sem associação, o professor não enxergaria nenhum aluno. Cadastre a associação antes.`);
         return;
       }
-      const acao = vaiVirarProfessor
-        ? `Tornar "${btn.dataset.nome}" professor? Ele passará a ver (somente leitura) o progresso, as notas e o parecer dos trabalhos de todos os alunos da associação "${btn.dataset.associacao}".`
-        : `Remover o papel de professor de "${btn.dataset.nome}"? Ele volta a ser só aluno comum.`;
-      if(!confirm(acao)) return;
-      const novoRole = vaiVirarProfessor ? "professor" : "aluno";
+      const mensagens = {
+        professor: `Tornar "${btn.dataset.nome}" professor? Ele passará a ver (somente leitura) o progresso, as notas e o parecer dos trabalhos de todos os alunos da associação "${btn.dataset.associacao}".`,
+        conselho: `Tornar "${btn.dataset.nome}" membro do conselho de mestres? Ele passará a poder enviar sugestões de tema de aula.`,
+        aluno: `Remover o papel especial de "${btn.dataset.nome}"? Ele volta a ser só aluno comum.`,
+      };
+      if(!confirm(mensagens[novoRole])) return;
       const { error } = await sb.from("curso_perfis").update({ role: novoRole }).eq("id", btn.dataset.id);
       if(error){ alert("Erro ao alterar papel: " + error.message); return; }
       await carregarAlunos();
@@ -627,6 +688,22 @@ function preencherFaixasLote(){
     sel.appendChild(o);
   });
   if(atual && contagem[atual]) sel.value = atual;
+}
+
+function botoesPapel(a){
+  const nome = escapeHtml(a.nome_completo);
+  const assoc = escapeHtml(a.associacao || "");
+  const attrs = `data-id="${a.id}" data-nome="${nome}" data-associacao="${assoc}"`;
+  if(a.role === "professor"){
+    return `<button class="btn btn-cinza toggle-papel" ${attrs} data-novo-role="aluno">Remover professor</button>`;
+  }
+  if(a.role === "conselho"){
+    return `<button class="btn btn-cinza toggle-papel" ${attrs} data-novo-role="aluno">Remover do conselho</button>`;
+  }
+  return `
+    <button class="btn btn-cinza toggle-papel" ${attrs} data-novo-role="professor">Tornar professor</button>
+    <button class="btn btn-cinza toggle-papel" ${attrs} data-novo-role="conselho">Tornar conselho</button>
+  `;
 }
 
 function confirmarNaPagina(msgEl, texto){

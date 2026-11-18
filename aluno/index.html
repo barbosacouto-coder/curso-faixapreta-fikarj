@@ -99,12 +99,38 @@
       <button data-tab="notas" id="tabNotasBtn">Minhas Notas</button>
       <button data-tab="progresso" id="tabProgressoBtn">Meu Progresso</button>
       <button data-tab="professor" id="tabProfessorBtn" style="display:none;">Meus Alunos</button>
+      <button data-tab="conselho" id="tabConselhoBtn" style="display:none;">Sugerir Tema</button>
     </nav>
 
     <!-- PROFESSOR (somente leitura, só aparece para quem tem o papel de professor) -->
     <section class="painel" id="tab-professor">
       <p style="font-size:13px;color:#555;margin:-4px 0 14px;">Progresso, notas e parecer dos trabalhos dos alunos da sua associação. Consulta somente leitura — a correção continua sendo feita pelo admin.</p>
       <div id="listaAlunosProfessor"></div>
+    </section>
+
+    <!-- CONSELHO DE MESTRES: sugerir tema de aula -->
+    <section class="painel" id="tab-conselho">
+      <div class="card">
+        <h3>Sugerir tema de aula</h3>
+        <p style="font-size:13px;color:#555;">Sua sugestão vai direto para o presidente da federação avaliar. A produção do conteúdo continua sendo feita por ele.</p>
+        <div class="campo">
+          <label>Módulo relacionado (opcional)</label>
+          <select id="sugestaoModulo"><option value="">— Sem módulo específico —</option></select>
+        </div>
+        <div class="campo">
+          <label>Sua sugestão</label>
+          <textarea id="sugestaoTexto" placeholder="Ex: uma aula sobre defesa pessoal para a faixa etária 50+"></textarea>
+        </div>
+        <button class="btn btn-verde" id="enviarSugestaoBtn">Enviar sugestão</button>
+        <div id="sugestaoMsg" class="msg"></div>
+      </div>
+      <div class="card">
+        <h3>Minhas sugestões enviadas</h3>
+        <table>
+          <thead><tr><th>Quando</th><th>Módulo</th><th>Sugestão</th><th>Status</th></tr></thead>
+          <tbody id="listaMinhasSugestoes"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- AULAS -->
@@ -213,6 +239,9 @@ async function fazerLogin(){
     if(meuPapel === "professor"){
       ativarModoProfessor();
       await carregarAlunosProfessor();
+    } else if(meuPapel === "conselho"){
+      ativarModoConselho();
+      await carregarTelaSugestoes();
     } else {
       carregarTudo();
     }
@@ -328,6 +357,73 @@ async function carregarAlunosProfessor(){
     container.appendChild(card);
   }
 }
+
+// ---------- MODO CONSELHO DE MESTRES: sugerir tema ----------
+function ativarModoConselho(){
+  ["tabAulasBtn","tabTarefasBtn","tabNotasBtn","tabProgressoBtn"].forEach(id => {
+    document.getElementById(id).style.display = "none";
+  });
+  document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("ativo"));
+  document.querySelectorAll("section.painel").forEach(s => s.classList.remove("ativo"));
+  const btnCons = document.getElementById("tabConselhoBtn");
+  btnCons.style.display = "inline-block";
+  btnCons.classList.add("ativo");
+  document.getElementById("tab-conselho").classList.add("ativo");
+}
+
+async function carregarTelaSugestoes(){
+  const { data: modulos } = await sb.from("curso_modulos").select("id, titulo").order("ordem");
+  const sel = document.getElementById("sugestaoModulo");
+  (modulos || []).forEach(m => {
+    const o = document.createElement("option");
+    o.value = m.id; o.textContent = m.titulo;
+    sel.appendChild(o);
+  });
+  await carregarMinhasSugestoes();
+}
+
+async function carregarMinhasSugestoes(){
+  const { data: sugestoes, error } = await sb
+    .from("curso_sugestoes_tema")
+    .select("*, curso_modulos(titulo)")
+    .eq("autor_id", alunoId)
+    .order("criado_em", { ascending: false });
+  const tbody = document.getElementById("listaMinhasSugestoes");
+  tbody.innerHTML = "";
+  if(error){
+    tbody.innerHTML = `<tr><td colspan="4" class="msg erro">Erro: ${escapeHtml(error.message)}</td></tr>`;
+    return;
+  }
+  if(!sugestoes || !sugestoes.length){
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#999;">Você ainda não enviou nenhuma sugestão.</td></tr>';
+    return;
+  }
+  const statusTexto = { nova: "Nova", em_analise: "Em análise", planejada: "Planejada", arquivada: "Arquivada" };
+  sugestoes.forEach(s => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${new Date(s.criado_em).toLocaleDateString("pt-BR")}</td>
+      <td>${escapeHtml(s.curso_modulos?.titulo || "—")}</td>
+      <td>${escapeHtml(s.texto)}</td>
+      <td>${escapeHtml(statusTexto[s.status] || s.status)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById("enviarSugestaoBtn").addEventListener("click", async () => {
+  const texto = document.getElementById("sugestaoTexto").value.trim();
+  const moduloId = document.getElementById("sugestaoModulo").value || null;
+  const msgEl = document.getElementById("sugestaoMsg");
+  if(!texto){ msgEl.textContent = "Escreva a sugestão antes de enviar."; msgEl.className = "msg erro"; return; }
+  msgEl.textContent = "Enviando..."; msgEl.className = "msg";
+  const { error } = await sb.from("curso_sugestoes_tema").insert({ autor_id: alunoId, modulo_id: moduloId, texto });
+  if(error){ msgEl.textContent = "Erro ao enviar: " + error.message; msgEl.className = "msg erro"; return; }
+  document.getElementById("sugestaoTexto").value = "";
+  document.getElementById("sugestaoModulo").value = "";
+  msgEl.textContent = "Sugestão enviada!"; msgEl.className = "msg ok";
+  await carregarMinhasSugestoes();
+});
 
 async function carregarTudo(){
   await carregarAulas();
