@@ -158,6 +158,7 @@
       <button data-tab="conteudo">Módulos &amp; Aulas</button>
       <button data-tab="tarefas">Tarefas</button>
       <button data-tab="avaliacoes">Avaliações</button>
+      <button data-tab="matriz">Avaliações por aluno</button>
       <button data-tab="trabalhos">Trabalhos recebidos</button>
       <button data-tab="progresso">Progresso dos alunos</button>
       <button data-tab="notasauto">Notas automáticas</button>
@@ -365,6 +366,27 @@
       </div>
     </section>
 
+    <!-- AVALIAÇÕES POR ALUNO (quem fez e quem falta) -->
+    <section class="painel" id="tab-matriz">
+      <div class="card">
+        <h3>Avaliações de cada aluno</h3>
+        <p style="font-size:13px;color:#555;margin-top:-4px;">Veja a nota de cada aluno em cada avaliação e quais avaliações ainda faltam. "FALTA" = o aluno ainda não fez.</p>
+        <div class="linha" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+          <div><label>Alunos</label>
+            <select id="matrizAtivos"><option value="ativos">Só ativos</option><option value="todos">Todos</option></select></div>
+          <div><label>Mostrar</label>
+            <select id="matrizFiltro"><option value="todos">Todos os alunos</option><option value="faltam">Só quem tem avaliação faltando</option><option value="completos">Só quem fez todas</option></select></div>
+          <div><label>Buscar nome</label><input id="matrizBusca" placeholder="Digite parte do nome" /></div>
+          <button class="btn btn-azul" id="matrizAtualizarBtn">Atualizar</button>
+          <button class="btn btn-cinza" id="matrizCsvBtn">Baixar planilha (CSV)</button>
+        </div>
+        <div id="matrizResumo" class="msg"></div>
+        <div style="overflow-x:auto;">
+          <table id="matrizTabela"></table>
+        </div>
+      </div>
+    </section>
+
     <!-- PROGRESSO -->
     <section class="painel" id="tab-progresso">
       <div class="card">
@@ -443,6 +465,76 @@ document.querySelectorAll("nav.tabs button").forEach(btn => {
     document.getElementById("tab-" + btn.dataset.tab).classList.add("ativo");
   });
 });
+
+
+// ---------- AVALIAÇÕES POR ALUNO (matriz) ----------
+let matrizDados = null;
+async function carregarMatriz(){
+  const resumo = document.getElementById("matrizResumo");
+  resumo.textContent = "Carregando…"; resumo.className = "msg";
+  if(!alunosCache.length) await carregarAlunos();
+  const [{ data: avs, error: e1 }, { data: notas, error: e2 }] = await Promise.all([
+    sb.from("curso_avaliacoes").select("id, titulo, nota_minima_aprovacao, curso_modulos(titulo, ordem)").eq("publicado", true),
+    sb.from("curso_notas").select("avaliacao_id, aluno_id, nota").limit(5000),
+  ]);
+  if(e1 || e2){ resumo.textContent = "Erro ao carregar: " + (e1 || e2).message; resumo.className = "msg erro"; return; }
+  const lista = (avs || []).slice().sort((a, b) => (a.curso_modulos?.ordem ?? 99) - (b.curso_modulos?.ordem ?? 99));
+  const mapa = {};
+  (notas || []).forEach(n => { mapa[n.aluno_id + "|" + n.avaliacao_id] = n.nota; });
+  matrizDados = { avs: lista, mapa };
+  desenharMatriz();
+}
+
+function desenharMatriz(){
+  if(!matrizDados) return;
+  const { avs, mapa } = matrizDados;
+  const soAtivos = document.getElementById("matrizAtivos").value === "ativos";
+  const filtro = document.getElementById("matrizFiltro").value;
+  const busca = document.getElementById("matrizBusca").value.trim().toLowerCase();
+  const resumo = document.getElementById("matrizResumo");
+
+  let alunos = alunosCache.filter(a => (!soAtivos || a.ativo) && (!busca || (a.nome_completo || "").toLowerCase().includes(busca)));
+  const linhas = alunos.map(a => {
+    const cel = avs.map(av => {
+      const nota = mapa[a.id + "|" + av.id];
+      return nota == null ? { tipo: "falta" } : { tipo: nota >= av.nota_minima_aprovacao ? "ok" : "baixa", nota };
+    });
+    return { a, cel, faltam: cel.filter(c => c.tipo === "falta").length };
+  }).filter(l => filtro === "todos" || (filtro === "faltam" ? l.faltam > 0 : l.faltam === 0));
+  matrizDados.linhas = linhas;
+
+  const cab = `<thead><tr><th>Aluno</th><th>Graduação</th>${avs.map(av => `<th title="${escapeHtml(av.titulo)}">${escapeHtml(av.curso_modulos?.titulo || av.titulo)}<br><small style="font-weight:normal;">mín. ${av.nota_minima_aprovacao}</small></th>`).join("")}<th>Faltam</th></tr></thead>`;
+  const corpo = linhas.map(l => `<tr>
+      <td>${escapeHtml(l.a.nome_completo)}${l.a.ativo ? "" : ' <small style="color:#999;">(inativo)</small>'}</td>
+      <td>${escapeHtml(l.a.faixa || "")}</td>
+      ${l.cel.map(c => c.tipo === "falta" ? '<td><span class="tag tag-pendente">FALTA</span></td>'
+        : `<td><span class="tag ${c.tipo === "ok" ? "tag-aprovado" : "tag-reprovado"}">${c.nota}</span></td>`).join("")}
+      <td><strong>${l.faltam}</strong></td></tr>`).join("");
+  document.getElementById("matrizTabela").innerHTML = cab + `<tbody>${corpo || `<tr><td colspan="${avs.length + 3}" style="color:#999;">Nenhum aluno neste filtro.</td></tr>`}</tbody>`;
+
+  const porAv = avs.map((av, i) => `${av.curso_modulos?.titulo || av.titulo}: ${linhas.filter(l => l.cel[i].tipo !== "falta").length}/${linhas.length} fizeram`);
+  resumo.textContent = `${linhas.length} aluno(s). ` + porAv.join(" · ");
+  resumo.className = "msg";
+}
+
+function baixarMatrizCsv(){
+  if(!matrizDados || !matrizDados.linhas) return;
+  const { avs, linhas } = matrizDados;
+  const esc = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const linhasCsv = [["Aluno", "Graduação", "Situação", ...avs.map(av => av.curso_modulos?.titulo || av.titulo), "Faltam"].map(esc).join(";")];
+  linhas.forEach(l => linhasCsv.push([l.a.nome_completo, l.a.faixa || "", l.a.ativo ? "Ativo" : "Inativo",
+    ...l.cel.map(c => c.tipo === "falta" ? "FALTA" : String(c.nota).replace(".", ",")), l.faltam].map(esc).join(";")));
+  const blob = new Blob(["\ufeff" + linhasCsv.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "avaliacoes-por-aluno.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+document.querySelector('nav.tabs button[data-tab="matriz"]').addEventListener("click", carregarMatriz);
+document.getElementById("matrizAtualizarBtn").addEventListener("click", carregarMatriz);
+["matrizAtivos", "matrizFiltro"].forEach(id => document.getElementById(id).addEventListener("change", desenharMatriz));
+document.getElementById("matrizBusca").addEventListener("input", desenharMatriz);
+document.getElementById("matrizCsvBtn").addEventListener("click", baixarMatrizCsv);
 
 // ---------- SUGESTÕES DE TEMA (conselho de mestres) ----------
 const STATUS_SUGESTAO = { nova: "Nova", em_analise: "Em análise", planejada: "Planejada", arquivada: "Arquivada" };

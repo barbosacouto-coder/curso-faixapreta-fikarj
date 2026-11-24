@@ -151,6 +151,7 @@
       </div>
       <div class="card">
         <h3>Minhas avaliações</h3>
+        <p id="resumoAvaliacoes" style="font-size:14px;font-weight:600;margin:0 0 8px;"></p>
         <table>
           <thead><tr><th>Avaliação</th><th>Nota</th><th>Situação</th><th>Observações</th></tr></thead>
           <tbody id="listaNotasAluno"></tbody>
@@ -761,24 +762,45 @@ async function abrirAvaliacaoNoSite(avaliacaoId, botao){
 }
 
 async function carregarNotas(){
-  const { data: notas, error } = await sb.from("curso_notas").select("*, curso_avaliacoes(titulo, nota_minima_aprovacao)").eq("aluno_id", alunoId);
+  const { data: avs, error } = await sb.from("curso_avaliacoes").select("id, titulo, nota_minima_aprovacao, curso_modulos(titulo, ordem)").eq("publicado", true);
+  const { data: notas } = await sb.from("curso_notas").select("avaliacao_id, nota, observacoes").eq("aluno_id", alunoId);
   const tbody = document.getElementById("listaNotasAluno");
+  const resumo = document.getElementById("resumoAvaliacoes");
   tbody.innerHTML = "";
-  if(error || !notas || !notas.length){
-    tbody.innerHTML = '<tr><td colspan="4" style="color:#999;">Nenhuma nota lançada ainda.</td></tr>';
+  if(error || !avs || !avs.length){
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#999;">Nenhuma avaliação publicada ainda.</td></tr>';
+    if(resumo) resumo.textContent = "";
     return;
   }
-  notas.forEach(n => {
-    const aprovado = n.nota >= (n.curso_avaliacoes?.nota_minima_aprovacao ?? 0);
+  const porAv = {};
+  (notas || []).forEach(n => { porAv[n.avaliacao_id] = n; });
+  const lista = avs.slice().sort((x, y) => (x.curso_modulos?.ordem ?? 99) - (y.curso_modulos?.ordem ?? 99));
+  const faltam = [];
+  lista.forEach(av => {
+    const n = porAv[av.id];
+    let nota = "—", situacao, obs = "";
+    if(!n){
+      faltam.push(av.curso_modulos?.titulo || av.titulo);
+      situacao = '<span class="tag tag-pendente">Falta fazer</span>';
+    } else {
+      nota = n.nota; obs = n.observacoes || "";
+      situacao = n.nota >= av.nota_minima_aprovacao
+        ? '<span class="tag tag-aprovado">Feita — aprovado</span>'
+        : '<span class="tag tag-reprovado">Feita — abaixo do mínimo</span>';
+    }
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(n.curso_avaliacoes?.titulo || "")}</td>
-      <td>${n.nota}</td>
-      <td>${aprovado ? '<span class="tag tag-aprovado">Aprovado</span>' : '<span class="tag tag-reprovado">Abaixo da média</span>'}</td>
-      <td>${escapeHtml(n.observacoes || "")}</td>
-    `;
+      <td>${escapeHtml(av.titulo)}${av.curso_modulos?.titulo ? ` <small style="color:#777;">(${escapeHtml(av.curso_modulos.titulo)})</small>` : ""}</td>
+      <td>${nota}</td>
+      <td>${situacao}</td>
+      <td>${escapeHtml(obs)}</td>`;
     tbody.appendChild(tr);
   });
+  if(resumo){
+    const feitas = lista.length - faltam.length;
+    resumo.textContent = `Você já fez ${feitas} de ${lista.length} avaliações.` + (faltam.length ? ` Faltam: ${faltam.join(", ")}.` : " 🎉 Todas feitas!");
+    resumo.style.color = faltam.length ? "#555" : "#009C37";
+  }
 }
 
 // ---------- PROGRESSO ----------
