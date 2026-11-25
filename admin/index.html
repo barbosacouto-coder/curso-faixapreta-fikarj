@@ -261,7 +261,7 @@
       <div class="card">
         <h3>Tarefas criadas</h3>
         <table>
-          <thead><tr><th>Título</th><th>Módulo</th><th>Tipo</th><th>Prazo</th></tr></thead>
+          <thead><tr><th>Título</th><th>Módulo</th><th>Tipo</th><th>Prazo</th><th>Situação</th></tr></thead>
           <tbody id="listaTarefas"></tbody>
         </table>
       </div>
@@ -298,7 +298,7 @@
       <div class="card">
         <h3>Avaliações criadas</h3>
         <table>
-          <thead><tr><th>Título</th><th>Módulo</th><th>Nota máx.</th><th>Mínima aprovação</th><th>Link</th></tr></thead>
+          <thead><tr><th>Título</th><th>Módulo</th><th>Nota máx.</th><th>Mínima aprovação</th><th>Link</th><th>Situação</th></tr></thead>
           <tbody id="listaAvaliacoes"></tbody>
         </table>
       </div>
@@ -985,6 +985,52 @@ document.getElementById("criarModuloBtn").addEventListener("click", async () => 
   await carregarModulos();
 });
 
+// ---------- PUBLICAR / DESPUBLICAR (sem apagar nada) ----------
+function botaoPublicacao(tabela, item){
+  return `<span class="tag ${item.publicado ? "tag-aprovado" : "tag-pendente"}">${item.publicado ? "Publicado" : "Oculto"}</span>
+    <button class="btn btn-cinza togglePub" data-tabela="${tabela}" data-id="${item.id}" data-pub="${item.publicado}" style="margin-left:6px;">${item.publicado ? "Ocultar dos alunos" : "Publicar"}</button>`;
+}
+function ligarBotoesPublicacao(raiz, recarregar){
+  raiz.querySelectorAll(".togglePub").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const { error } = await sb.from(btn.dataset.tabela).update({ publicado: btn.dataset.pub !== "true" }).eq("id", btn.dataset.id);
+      if(error){ alert("Não foi possível alterar: " + error.message); }
+      await recarregar();
+    });
+  });
+}
+
+// ---------- MATERIAIS (arquivos guardados no Supabase, bucket privado) ----------
+function nomeMaterial(url){
+  if(!url) return "";
+  if(url.startsWith("storage:")) return decodeURIComponent(url.split("/").pop()).replace(/^\d+-/, "");
+  return url;
+}
+function nomeSeguroArquivo(nome){
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "arquivo";
+}
+async function enviarMaterial(aulaId, arquivo){
+  if(arquivo.size > 50 * 1024 * 1024) return { erro: "Arquivo maior que 50 MB." };
+  const caminho = `aulas/${aulaId}/${Date.now()}-${nomeSeguroArquivo(arquivo.name)}`;
+  const { error } = await sb.storage.from("curso-materiais").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || undefined });
+  if(error) return { erro: error.message };
+  return { url: "storage:" + caminho };
+}
+async function removerArquivoAntigo(url){
+  if(url && url.startsWith("storage:")){
+    await sb.storage.from("curso-materiais").remove([url.slice("storage:".length)]);
+  }
+}
+async function abrirMaterial(url){
+  if(!url) return;
+  if(!url.startsWith("storage:")){ window.open(url, "_blank", "noopener"); return; }
+  const w = window.open("", "_blank");
+  const { data, error } = await sb.storage.from("curso-materiais").createSignedUrl(url.slice("storage:".length), 3600);
+  if(error || !data){ if(w) w.close(); alert("Não foi possível abrir o arquivo: " + (error ? error.message : "")); return; }
+  if(w) w.location.href = data.signedUrl;
+}
+
 async function carregarModulos(){
   const { data: modulos, error } = await sb.from("curso_modulos").select("*").order("ordem");
   if(error) return;
@@ -996,17 +1042,58 @@ async function carregarModulos(){
   container.innerHTML = "";
 
   for(const mod of modulosCache){
-    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem");
+    const { data: aulas } = await sb.from("curso_aulas").select("*").eq("modulo_id", mod.id).order("ordem").order("criado_em").order("id");
+    const lista = aulas || [];
 
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-      <h3>${escapeHtml(mod.titulo)} <small style="font-weight:normal;color:#777;">(ordem ${mod.ordem})</small></h3>
+      <h3>${escapeHtml(mod.titulo)} <small style="font-weight:normal;color:#777;">(ordem ${mod.ordem})</small>
+        <span class="tag ${mod.publicado ? "tag-aprovado" : "tag-pendente"}">${mod.publicado ? "Publicado" : "Oculto"}</span></h3>
       <p style="font-size:13px;color:#555;">${escapeHtml(mod.descricao || "")}</p>
+      <details style="margin:6px 0 12px;">
+        <summary style="cursor:pointer;font-size:13px;color:var(--azul);">Editar este módulo</summary>
+        <div class="grid-form" style="margin-top:10px;">
+          <div><label>Título</label><input class="mTitulo" value="${escapeHtml(mod.titulo)}" /></div>
+          <div><label>Ordem</label><input class="mOrdem" type="number" value="${mod.ordem}" /></div>
+          <div><label>Visível para os alunos?</label>
+            <select class="mPub"><option value="true" ${mod.publicado ? "selected" : ""}>Sim</option><option value="false" ${mod.publicado ? "" : "selected"}>Não (oculto)</option></select></div>
+        </div>
+        <div class="campo"><label>Descrição</label><textarea class="mDescricao">${escapeHtml(mod.descricao || "")}</textarea></div>
+        <button class="btn btn-azul salvarModulo">Salvar módulo</button>
+        <div class="msg mMsg"></div>
+      </details>
       <table>
-        <thead><tr><th>Aula</th><th>YouTube</th><th>Obrigatória</th></tr></thead>
+        <thead><tr><th>Aula</th><th>YouTube</th><th>Obrig.</th><th>Situação</th><th>Material</th><th></th></tr></thead>
         <tbody>
-          ${aulas && aulas.length ? aulas.map(a => `<tr><td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.youtube_id || "")}</td><td>${a.obrigatoria ? "Sim" : "Não"}</td></tr>`).join("") : '<tr><td colspan="3" style="color:#999;">Nenhuma aula ainda</td></tr>'}
+          ${lista.length ? lista.map(a => `
+            <tr data-aula="${a.id}">
+              <td>${escapeHtml(a.titulo)}</td>
+              <td>${escapeHtml(a.youtube_id || "")}</td>
+              <td>${a.obrigatoria ? "Sim" : "Não"}</td>
+              <td><span class="tag ${a.publicado ? "tag-aprovado" : "tag-pendente"}">${a.publicado ? "Publicada" : "Oculta"}</span></td>
+              <td>${a.material_url ? `<a href="#" class="abrirMat" data-url="${escapeHtml(a.material_url)}">${escapeHtml(a.material_url.startsWith("storage:") ? nomeMaterial(a.material_url) : "Abrir link")}</a>` : '<span style="color:#999;">—</span>'}</td>
+              <td><button class="btn btn-cinza editarAula" data-id="${a.id}">Editar</button></td>
+            </tr>
+            <tr class="linhaEdicao" data-edicao="${a.id}" hidden>
+              <td colspan="6" style="background:var(--cinza-claro,#f5f5f5);">
+                <div class="grid-form">
+                  <div><label>Título da aula</label><input class="eTitulo" value="${escapeHtml(a.titulo)}" /></div>
+                  <div><label>Vídeo do YouTube (link ou código)</label><input class="eYoutube" value="${escapeHtml(a.youtube_id || "")}" /></div>
+                  <div><label>Ordem</label><input class="eOrdem" type="number" value="${a.ordem}" /></div>
+                  <div><label>Obrigatória?</label><select class="eObrig"><option value="true" ${a.obrigatoria ? "selected" : ""}>Sim</option><option value="false" ${a.obrigatoria ? "" : "selected"}>Não</option></select></div>
+                  <div><label>Visível para os alunos?</label><select class="ePub"><option value="true" ${a.publicado ? "selected" : ""}>Sim</option><option value="false" ${a.publicado ? "" : "selected"}>Não (oculta)</option></select></div>
+                  <div><label>Link externo do material</label><input class="eLink" value="${a.material_url && !a.material_url.startsWith("storage:") ? escapeHtml(a.material_url) : ""}" placeholder="https://… (opcional)" /></div>
+                </div>
+                <div class="campo"><label>Descrição</label><textarea class="eDescricao">${escapeHtml(a.descricao || "")}</textarea></div>
+                <div class="campo"><label>${a.material_url && a.material_url.startsWith("storage:") ? "Substituir o arquivo do material (envie um novo)" : "Enviar arquivo do material (PDF, Word, Excel, PowerPoint ou imagem — até 50 MB)"}</label>
+                  <input type="file" class="eArquivo" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.txt" /></div>
+                ${a.material_url ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" class="eRemover" /> Remover o material atual desta aula</label>` : ""}
+                <button class="btn btn-azul salvarEdicaoAula" data-id="${a.id}" style="margin-top:8px;">Salvar alterações</button>
+                <button class="btn btn-cinza cancelarEdicaoAula" data-id="${a.id}" style="margin-top:8px;">Cancelar</button>
+                <div class="msg eMsg"></div>
+              </td>
+            </tr>`).join("") : '<tr><td colspan="6" style="color:#999;">Nenhuma aula ainda</td></tr>'}
         </tbody>
       </table>
       <details style="margin-top:10px;">
@@ -1018,27 +1105,98 @@ async function carregarModulos(){
           <div><label>Obrigatória?</label>
             <select class="aulaObrigatoria"><option value="true">Sim</option><option value="false">Não</option></select>
           </div>
-          <div><label>Ordem</label><input class="aulaOrdem" type="number" value="0" /></div>
+          <div><label>Ordem</label><input class="aulaOrdem" type="number" value="${lista.length ? Math.max(...lista.map(x => x.ordem)) + 1 : 0}" /></div>
         </div>
         <div class="campo"><label>Descrição</label><textarea class="aulaDescricao"></textarea></div>
+        <div class="campo"><label>Ou envie o arquivo do material (PDF, Word, Excel, PowerPoint ou imagem — até 50 MB)</label>
+          <input type="file" class="aulaArquivo" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.txt" /></div>
         <button class="btn btn-azul salvarAula" data-modulo="${mod.id}">Salvar aula</button>
         <div class="msg aulaMsg"></div>
       </details>
     `;
     container.appendChild(card);
 
+    // abrir material
+    card.querySelectorAll(".abrirMat").forEach(l => l.addEventListener("click", ev => { ev.preventDefault(); abrirMaterial(l.dataset.url); }));
+
+    // editar módulo
+    card.querySelector(".salvarModulo").addEventListener("click", async () => {
+      const msgEl = card.querySelector(".mMsg");
+      const titulo = card.querySelector(".mTitulo").value.trim();
+      if(!titulo){ msgEl.textContent = "O módulo precisa de um título."; msgEl.className = "msg mMsg erro"; return; }
+      const { error } = await sb.from("curso_modulos").update({
+        titulo, descricao: card.querySelector(".mDescricao").value.trim(),
+        ordem: parseInt(card.querySelector(".mOrdem").value || "0", 10),
+        publicado: card.querySelector(".mPub").value === "true",
+      }).eq("id", mod.id);
+      if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg mMsg erro"; return; }
+      await carregarModulos();
+    });
+
+    // editar aula
+    card.querySelectorAll(".editarAula").forEach(btn => btn.addEventListener("click", () => {
+      const linha = card.querySelector(`tr[data-edicao="${btn.dataset.id}"]`);
+      linha.hidden = !linha.hidden;
+    }));
+    card.querySelectorAll(".cancelarEdicaoAula").forEach(btn => btn.addEventListener("click", () => {
+      card.querySelector(`tr[data-edicao="${btn.dataset.id}"]`).hidden = true;
+    }));
+    card.querySelectorAll(".salvarEdicaoAula").forEach(btn => btn.addEventListener("click", async () => {
+      const aula = lista.find(x => x.id === btn.dataset.id);
+      const linha = card.querySelector(`tr[data-edicao="${aula.id}"]`);
+      const msgEl = linha.querySelector(".eMsg");
+      const titulo = linha.querySelector(".eTitulo").value.trim();
+      if(!titulo){ msgEl.textContent = "Dê um título à aula."; msgEl.className = "msg eMsg erro"; return; }
+      btn.disabled = true; msgEl.textContent = "Salvando…"; msgEl.className = "msg eMsg";
+
+      let material_url = aula.material_url;
+      const arquivo = linha.querySelector(".eArquivo").files[0];
+      const remover = linha.querySelector(".eRemover")?.checked;
+      const linkNovo = linha.querySelector(".eLink").value.trim();
+      const antigoStorage = aula.material_url && aula.material_url.startsWith("storage:") ? aula.material_url : null;
+      if(arquivo){
+        const r = await enviarMaterial(aula.id, arquivo);
+        if(r.erro){ msgEl.textContent = "Erro ao enviar o arquivo: " + r.erro; msgEl.className = "msg eMsg erro"; btn.disabled = false; return; }
+        material_url = r.url;
+      } else if(remover){
+        material_url = null;
+      } else if(!antigoStorage){
+        material_url = linkNovo || null;
+      }
+      const { error } = await sb.from("curso_aulas").update({
+        titulo, descricao: linha.querySelector(".eDescricao").value.trim(),
+        youtube_id: extrairIdYoutube(linha.querySelector(".eYoutube").value.trim()) || null,
+        ordem: parseInt(linha.querySelector(".eOrdem").value || "0", 10),
+        obrigatoria: linha.querySelector(".eObrig").value === "true",
+        publicado: linha.querySelector(".ePub").value === "true",
+        material_url,
+      }).eq("id", aula.id);
+      if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg eMsg erro"; btn.disabled = false; return; }
+      if(antigoStorage && antigoStorage !== material_url) await removerArquivoAntigo(antigoStorage); // só depois de salvar com sucesso
+      await carregarModulos();
+      await carregarProgresso();
+    }));
+
+    // nova aula
     card.querySelector(".salvarAula").addEventListener("click", async (ev) => {
       const moduloId = ev.target.dataset.modulo;
       const titulo = card.querySelector(".aulaTitulo").value.trim();
       const youtube_id = extrairIdYoutube(card.querySelector(".aulaYoutube").value.trim());
-      const material_url = card.querySelector(".aulaMaterial").value.trim();
+      const material_url = card.querySelector(".aulaMaterial").value.trim() || null;
       const obrigatoria = card.querySelector(".aulaObrigatoria").value === "true";
       const ordem = parseInt(card.querySelector(".aulaOrdem").value || "0", 10);
       const descricao = card.querySelector(".aulaDescricao").value.trim();
+      const arquivo = card.querySelector(".aulaArquivo").files[0];
       const msgEl = card.querySelector(".aulaMsg");
-      if(!titulo){ msgEl.textContent = "Dê um título à aula."; msgEl.className = "msg erro"; return; }
-      const { error } = await sb.from("curso_aulas").insert({ modulo_id: moduloId, titulo, youtube_id, material_url, obrigatoria, ordem, descricao });
-      if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg erro"; return; }
+      if(!titulo){ msgEl.textContent = "Dê um título à aula."; msgEl.className = "msg aulaMsg erro"; return; }
+      msgEl.textContent = "Salvando…"; msgEl.className = "msg aulaMsg";
+      const { data: nova, error } = await sb.from("curso_aulas").insert({ modulo_id: moduloId, titulo, youtube_id: youtube_id || null, material_url, obrigatoria, ordem, descricao }).select("id").single();
+      if(error){ msgEl.textContent = "Erro: " + error.message; msgEl.className = "msg aulaMsg erro"; return; }
+      if(arquivo){
+        const r = await enviarMaterial(nova.id, arquivo);
+        if(r.erro){ alert("A aula foi criada, mas o arquivo não subiu: " + r.erro + "\nAbra 'Editar' na aula e tente enviar de novo."); }
+        else await sb.from("curso_aulas").update({ material_url: r.url }).eq("id", nova.id);
+      }
       await carregarModulos();
       await carregarProgresso();
     });
@@ -1069,9 +1227,10 @@ async function carregarTarefas(){
   tbody.innerHTML = "";
   (data || []).forEach(t => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(t.titulo)}</td><td>${escapeHtml(t.curso_modulos?.titulo || "")}</td><td>${t.tipo_entrega === "documento" ? "Documento/imagem" : "Link de vídeo"}</td><td>${t.prazo || "-"}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(t.titulo)}</td><td>${escapeHtml(t.curso_modulos?.titulo || "")}</td><td>${t.tipo_entrega === "documento" ? "Documento/imagem" : "Link de vídeo"}</td><td>${t.prazo || "-"}</td><td>${botaoPublicacao("curso_tarefas", t)}</td>`;
     tbody.appendChild(tr);
   });
+  ligarBotoesPublicacao(tbody, carregarTarefas);
 }
 
 // ---------- AVALIACOES ----------
@@ -1101,9 +1260,10 @@ async function carregarAvaliacoes(){
   (data || []).forEach(a => {
     const tr = document.createElement("tr");
     const linkHtml = a.link_url ? `<a href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">Abrir</a>` : "";
-    tr.innerHTML = `<td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.curso_modulos?.titulo || "")}</td><td>${a.nota_maxima}</td><td>${a.nota_minima_aprovacao}</td><td>${linkHtml}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(a.titulo)}</td><td>${escapeHtml(a.curso_modulos?.titulo || "")}</td><td>${a.nota_maxima}</td><td>${a.nota_minima_aprovacao}</td><td>${linkHtml}</td><td>${botaoPublicacao("curso_avaliacoes", a)}</td>`;
     tbody.appendChild(tr);
   });
+  ligarBotoesPublicacao(tbody, carregarAvaliacoes);
   preencherSelect(document.getElementById("notaAvaliacaoSelect"), data || [], "id", "titulo");
 }
 

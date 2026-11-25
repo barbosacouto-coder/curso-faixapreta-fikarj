@@ -466,7 +466,9 @@ async function carregarAulas(){
           ${liberada ? `
             <p style="font-size:13px;color:#555;">${escapeHtml(a.descricao || "")}</p>
             ${a.youtube_id ? `<div class="aula-video"><div id="yt-${a.id}"></div></div>` : ""}
-            ${a.material_url ? `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>` : ""}
+            ${a.material_url ? (a.material_url.startsWith("storage:")
+              ? `<p><a href="#" class="abrirMaterial" data-path="${escapeHtml(a.material_url.slice(8))}">Material da aula</a></p>`
+              : `<p><a href="${escapeHtml(a.material_url)}" target="_blank" rel="noopener">Material da aula</a></p>`) : ""}
             ${a.youtube_id ? `<p class="aula-status" id="st-${a.id}" style="font-size:13px;margin:6px 0 0;color:#555;">Se assistir pelo menos 90% do vídeo, a aula é marcada sozinha. Se preferir, marque a caixinha abaixo.</p>` : ""}
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-weight:${assistida ? "600" : "400"};color:${assistida ? "#009C37" : "#222"};">
               <input type="checkbox" class="marcarAula" data-aula="${a.id}" ${assistida ? "checked" : ""} style="width:20px;height:20px;" />
@@ -479,6 +481,16 @@ async function carregarAulas(){
     card.innerHTML = `<h3>${escapeHtml(mod.titulo)}</h3><p style="font-size:13px;color:#555;">${escapeHtml(mod.descricao || "")}</p>${aulasHtml || '<p style="color:#999;">Nenhuma aula neste módulo ainda.</p>'}`;
     container.appendChild(card);
   }
+
+  document.querySelectorAll(".abrirMaterial").forEach(l => {
+    l.addEventListener("click", async ev => {
+      ev.preventDefault();
+      const w = window.open("", "_blank");
+      const { data, error } = await sb.storage.from("curso-materiais").createSignedUrl(l.dataset.path, 3600);
+      if(error || !data){ if(w) w.close(); alert("Não foi possível abrir o material agora. Tente de novo."); return; }
+      if(w) w.location.href = data.signedUrl;
+    });
+  });
 
   document.querySelectorAll(".marcarAula").forEach(cb => {
     cb.addEventListener("change", async () => {
